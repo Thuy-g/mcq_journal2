@@ -1,0 +1,52 @@
+# Python generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+.env.*
+*.key
+*.pem
+
+# Large KG data
+data/**/*.ttl
+data/**/*.nt
+data/**/*.nq
+data/**/*.rdf
+data/**/*.owl
+data/**/*.pickle
+data/**/*.pickle_*
+data/**/*.pkl
+
+# Caches and databases
+*.sqlite
+*.sqlite3
+*.db
+sparql_cache*
+embedding_cache*
+
+# Models
+models/
+
+# Generated outputs
+outputs/*
+!outputs/.gitkeep
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Logs
+*.log
+
+# Operating system
+.DS_Store
+Thumbs.db
