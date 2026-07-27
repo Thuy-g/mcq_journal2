@@ -14,15 +14,18 @@
 #       only `redirect_used`, so a found-and-rejected target is indistinguishable
 #       from a lookup that found nothing.
 #
-# Against the frozen v3.3 selector (sha256 b9556d64…) this module is expected to
-# produce ONE PASS and THREE FAILURES. The passing control proves the fake
-# transport and redirect fixture are sound, so the three failures are attributable
-# to selector behaviour rather than to a defective fixture.
+# Committed at tag `category-selector-v3.4-red`, where this module ran against the
+# frozen v3.3 selector (sha256 b9556d64…) and produced ONE PASS and THREE FAILURES.
+# The passing control proved the fake transport and redirect fixture were sound, so
+# the three failures were attributable to selector behaviour, not to the fixture.
+#
+# It now targets category_extractor_ClaudeWeb_v4 and must report FOUR PASSES. Only
+# the import and these comments changed; not one behavioural contract was weakened.
 #
 # Offline and deterministic: no network, no SQLite cache, no SBERT, no local
 # index, no subprocess, no monkeypatch, no xfail, no skip, no ordering or path
-# dependence. The real v3.3 selector code is exercised; only the transport is
-# replaced.
+# dependence. The real selector code under test is exercised — v3.3 at the RED
+# tag, v3.4 now; only the transport is replaced.
 #
 # Run:
 #     python -m pytest -vv tests/test_category_extractor_v34_regressions.py --tb=short
@@ -41,7 +44,7 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import category_extractor_ClaudeWeb_v3 as ce  # noqa: E402
+import category_extractor_ClaudeWeb_v4 as ce  # noqa: E402
 
 RESOURCE = "http://dbpedia.org/resource/"
 CATEGORY = ce.CATEGORY_PREFIX
@@ -89,7 +92,7 @@ PROVENANCE_CONTRACT = {
 
 
 class FakeEndpoint:
-    """Subject-aware fake SPARQL transport for the real v3.3 selector.
+    """Subject-aware fake SPARQL transport for the real selector under test.
 
     Routes on the ``#qid:`` marker the query builders emit and on which
     ``<uri>`` appears in the query text, so it answers exactly as an endpoint
