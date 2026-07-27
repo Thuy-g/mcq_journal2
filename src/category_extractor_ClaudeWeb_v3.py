@@ -129,6 +129,7 @@ __all__ = [
     "SqliteSparqlCache",
     "CacheSchemaMismatch",
     "SparqlRunner",
+    "PerAnswerRunner",
     "DBpediaSparqlClient",
     "make_dbpedia_runner",
     "AnswerInfo",
@@ -137,6 +138,7 @@ __all__ = [
     "LeakVerdict",
     "RedirectResolver",
     "SparqlRedirectResolver",
+    "RedirectQueryFailed",
     "resolve_query_uri",
     "format_display_label",
     "detect_leak",
@@ -161,10 +163,21 @@ __all__ = [
 # 0) CONFIGURATION — plain constants only. Nothing here performs I/O.
 # ---------------------------------------------------------------------------
 
-# Bumped to 3.1 by the final core patch: ``ClassCandidate`` gained
-# ``eligible_remote_count`` and local counts now exclude the Answer itself.
-# The SQLite cache table is untouched, so CACHE_SCHEMA_VERSION stays at 3.0.
-SCHEMA_VERSION = "category_selector_v3.1"
+# 3.1: ``ClassCandidate`` gained ``eligible_remote_count`` and local counts
+#      stopped counting the Answer as one of its own distractors.
+# 3.2: ``sparql_query_count`` and ``cache_stats`` changed meaning from the
+#      runner's cumulative totals to this Answer's own spend. Records written by
+#      3.1 and 3.2 have identical field names but incomparable counter values
+#      whenever one runner served more than one Answer, which is why the version
+#      moves rather than the field names.
+# 3.3: those same per-Answer counters now include the built-in redirect query.
+#      A 3.2 record produced with ``resolve_redirects=True`` undercounts by one
+#      query per hop, so redirect-enabled 3.2 and 3.3 counters are likewise not
+#      comparable. A failed redirect lookup is also now reported as a query
+#      failure rather than as an absence of categories.
+# The SQLite cache table is untouched throughout, so CACHE_SCHEMA_VERSION stays
+# at 3.0 — it versions the on-disk schema, not the result record.
+SCHEMA_VERSION = "category_selector_v3.3"
 CACHE_SCHEMA_VERSION = "sparql_cache_v3.0"
 
 DEFAULT_ENDPOINT = os.environ.get("DBPEDIA_ENDPOINT", "https://dbpedia.org/sparql")
@@ -360,6 +373,11 @@ class SparqlResponseCache(Protocol):
         ...
 
 
+# Every table a complete v3 cache must contain. An existing file that claims
+# this schema version but lacks one of them is refused, not repaired.
+_REQUIRED_CACHE_TABLES = frozenset({"responses", "meta"})
+
+
 class CacheSchemaMismatch(RuntimeError):
     """Raised when a cache file was not written by this schema version."""
 
@@ -423,16 +441,58 @@ class SqliteSparqlCache:
         if self._create_parents and str(target.parent) not in ("", "."):
             target.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.path)
-        existing = {
-            row[0]
-            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        }
-        if existing and "meta" not in existing:
+
+        def refuse(reason: str) -> CacheSchemaMismatch:
             conn.close()
-            raise CacheSchemaMismatch(
-                f"{self.path!r} contains tables {sorted(existing)} but no 'meta' table; "
-                "refusing to write to a cache produced by another schema"
-            )
+            return CacheSchemaMismatch(f"{self.path!r} {reason}")
+
+        try:
+            existing = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+        except sqlite3.DatabaseError as exc:
+            raise refuse(f"is not a readable SQLite database: {exc}") from exc
+
+        if existing:
+            # An existing database is validated *completely* before anything is
+            # written to it. Creating the v3 tables first and only then reading
+            # meta.schema_version — as this method used to — leaves a permanent
+            # mark on a file that turns out to be foreign, which is exactly what
+            # the refusal is supposed to prevent.
+            if "meta" not in existing:
+                raise refuse(
+                    f"contains tables {sorted(existing)} but no 'meta' table; "
+                    "refusing to write to a cache produced by another schema"
+                )
+            try:
+                row = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'"
+                ).fetchone()
+            except sqlite3.DatabaseError as exc:
+                raise refuse(f"has an unreadable 'meta' table: {exc}") from exc
+            if row is None:
+                raise refuse(
+                    "has a 'meta' table that records no schema_version; "
+                    "refusing to adopt a cache of unknown provenance"
+                )
+            if row[0] != self.schema_version:
+                raise refuse(
+                    f"has schema_version {row[0]!r}, expected {self.schema_version!r}"
+                )
+            missing = sorted(_REQUIRED_CACHE_TABLES - existing)
+            if missing:
+                raise refuse(
+                    f"declares schema_version {row[0]!r} but is missing table(s) "
+                    f"{missing}; refusing to repair an incomplete cache in place"
+                )
+            self._conn = conn
+            return conn
+
+        # Only a database with no tables at all — a new file, or one this
+        # process just created by connecting — may have the v3 schema written.
         conn.execute(
             "CREATE TABLE IF NOT EXISTS responses ("
             " query_hash TEXT PRIMARY KEY,"
@@ -446,22 +506,15 @@ class SqliteSparqlCache:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
         )
-        row = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
-        if row is None:
-            conn.executemany(
-                "INSERT OR REPLACE INTO meta VALUES (?, ?)",
-                [
-                    ("schema_version", self.schema_version),
-                    ("created_at", str(time.time())),
-                    ("endpoint", self.endpoint),
-                ],
-            )
-            conn.commit()
-        elif row[0] != self.schema_version:
-            conn.close()
-            raise CacheSchemaMismatch(
-                f"{self.path!r} has schema_version {row[0]!r}, expected {self.schema_version!r}"
-            )
+        conn.executemany(
+            "INSERT OR REPLACE INTO meta VALUES (?, ?)",
+            [
+                ("schema_version", self.schema_version),
+                ("created_at", str(time.time())),
+                ("endpoint", self.endpoint),
+            ],
+        )
+        conn.commit()
         self._conn = conn
         return conn
 
@@ -586,7 +639,15 @@ class SparqlRunner:
 
         if status is QueryStatus.FAILED:
             self.n_failed += 1
-            cache_status = CacheStatus.DISABLED if self.cache is None else CacheStatus.MISS
+            # Provenance must survive failure: a bypassed run did not consult
+            # the cache, so calling the outcome a MISS would misreport why no
+            # cached answer was used. Nothing is written either way.
+            if self.cache is None:
+                cache_status = CacheStatus.DISABLED
+            elif self.bypass:
+                cache_status = CacheStatus.BYPASS
+            else:
+                cache_status = CacheStatus.MISS
             return QueryResult(
                 status=status,
                 rows=(),
@@ -629,6 +690,7 @@ class SparqlRunner:
         )
 
     def stats(self) -> dict[str, int]:
+        """Counters accumulated by *this* runner since it was constructed."""
         return {
             "queries": self.n_queries,
             "cache_hits": self.n_cache_hits,
@@ -636,6 +698,68 @@ class SparqlRunner:
             "failed": self.n_failed,
             "zero_results": self.n_zero_results,
         }
+
+
+# Pairs of (stats() key, SparqlRunner attribute) — the single place the counter
+# names are written down, so a new counter cannot be added to one and forgotten
+# in the other.
+_COUNTER_FIELDS: tuple[tuple[str, str], ...] = (
+    ("queries", "n_queries"),
+    ("cache_hits", "n_cache_hits"),
+    ("client_calls", "n_client_calls"),
+    ("failed", "n_failed"),
+    ("zero_results", "n_zero_results"),
+)
+
+
+class PerAnswerRunner(SparqlRunner):
+    """A per-invocation counter view over a shared runner.
+
+    Every query is delegated, so caching, refresh and bypass behaviour are
+    unchanged and the shared runner's counters keep accumulating across the
+    whole batch. What differs is *this* object's counters, which start at zero
+    and therefore describe exactly one Answer.
+
+    This exists because a batch that reuses one runner would otherwise report
+    cumulative totals on every result after the first: two Answers costing three
+    queries each would be recorded as 3 and 6 rather than 3 and 3. Wrapping
+    rather than threading a baseline through every return path makes the
+    property structural — there is no second source of numbers for a caller to
+    reach for by mistake.
+    """
+
+    def __init__(self, delegate: SparqlRunner) -> None:
+        super().__init__(
+            client=delegate.client,
+            cache=delegate.cache,
+            refresh=delegate.refresh,
+            bypass=delegate.bypass,
+        )
+        self.delegate = delegate
+
+    def run(self, query: str) -> QueryResult:
+        before = self.delegate.stats()
+        try:
+            return self.delegate.run(query)
+        finally:
+            # Mirror whatever the delegate counted, including on the failure
+            # path, so the two views can never drift apart.
+            after = self.delegate.stats()
+            for name, attribute in _COUNTER_FIELDS:
+                setattr(
+                    self,
+                    attribute,
+                    getattr(self, attribute) + after[name] - before[name],
+                )
+
+
+def _base_runner(runner: SparqlRunner) -> SparqlRunner:
+    """The shared runner underneath any stack of per-Answer views."""
+    seen: set[int] = set()
+    while isinstance(runner, PerAnswerRunner) and id(runner) not in seen:
+        seen.add(id(runner))
+        runner = runner.delegate
+    return runner
 
 
 @dataclass
@@ -1489,6 +1613,22 @@ def local_kg_key(local_index: Optional[Mapping[str, Any]], uri: str) -> Optional
     return None
 
 
+class RedirectQueryFailed(RuntimeError):
+    """The redirect lookup itself failed, so nothing follows from it.
+
+    This is the third state that a bare ``None`` used to swallow. "The endpoint
+    answered and there is no redirect" licenses continuing with the original
+    URI; "the endpoint did not answer" licenses nothing at all, and reporting it
+    as an absence of categories would turn a transport failure into a data
+    finding about the Answer.
+    """
+
+    def __init__(self, uri: str, error: Optional[str] = None) -> None:
+        super().__init__(f"redirect query failed for {uri}: {error}")
+        self.uri = uri
+        self.error = error
+
+
 class RedirectResolver(Protocol):
     def resolve(self, uri: str) -> Optional[str]:  # pragma: no cover - protocol
         ...
@@ -1496,15 +1636,47 @@ class RedirectResolver(Protocol):
 
 @dataclass
 class SparqlRedirectResolver:
-    """``dbo:wikiPageRedirects`` resolver. Never traverses ``owl:sameAs``."""
+    """``dbo:wikiPageRedirects`` resolver. Never traverses ``owl:sameAs``.
+
+    Returns ``None`` for a successful lookup that found no redirect, and raises
+    :class:`RedirectQueryFailed` when the lookup could not be performed.
+    """
 
     runner: SparqlRunner
 
     def resolve(self, uri: str) -> Optional[str]:
         result = self.runner.run(build_redirect_query(uri))
-        if not result.ok or not result.rows:
-            return None
+        if result.failed:
+            raise RedirectQueryFailed(uri, result.error)
+        if not result.rows:
+            return None  # answered, and there is no redirect
         return _binding(result.rows[0], "target")
+
+
+def _bind_redirect_resolver(
+    resolver: Optional[RedirectResolver], runner: SparqlRunner
+) -> Optional[RedirectResolver]:
+    """Route the built-in resolver's query through this Answer's counter view.
+
+    A resolver constructed over the caller's shared runner would otherwise query
+    around the per-invocation wrapper, so its query would land in the batch total
+    but not in the result that caused it.
+
+    Rebinding is a counting concern only, so it happens exactly when it cannot
+    change where the query goes: either ``runner`` already delegates to the
+    resolver's own runner, or the two share the same client and cache objects. A
+    custom resolver is never touched — it may hold state or a transport this
+    module knows nothing about.
+    """
+    if not isinstance(resolver, SparqlRedirectResolver):
+        return resolver
+    existing = resolver.runner
+    same_transport = _base_runner(existing) is _base_runner(runner) or (
+        existing.client is runner.client and existing.cache is runner.cache
+    )
+    if not same_transport:
+        return resolver
+    return SparqlRedirectResolver(runner)
 
 
 def resolve_query_uri(
@@ -1519,6 +1691,11 @@ def resolve_query_uri(
     Disabled by default, at most ``max_hops`` hop, cycle protected, and it never
     touches ``owl:sameAs`` or any key of the local pickle.
 
+    Raises :class:`RedirectQueryFailed` when the lookup could not be performed.
+    Any other resolver exception is treated as "no redirect available" and
+    contained here, because a custom resolver's internal errors say nothing
+    about the endpoint.
+
     NOT VERIFIED AGAINST A LIVE ENDPOINT. This turn exercised it only against a
     test double; treat live behaviour as unverified until an integration run
     reports otherwise.
@@ -1531,6 +1708,8 @@ def resolve_query_uri(
     for _ in range(max_hops):
         try:
             target = resolver.resolve(current)
+        except RedirectQueryFailed:
+            raise  # a transport failure is not evidence that no redirect exists
         except Exception:  # noqa: BLE001
             break
         if not target:
@@ -1639,6 +1818,13 @@ class ClassSelectionResult:
     mode's policy and truncated to ``top_n``. ``evaluated_classes`` holds every
     candidate considered, including rejections, so that failure reasons can be
     counted for the yield-rate table.
+
+    ``sparql_query_count`` and ``cache_stats`` describe **this Answer only**,
+    even when one :class:`SparqlRunner` serves a whole batch; they are not the
+    runner's running totals. ``sparql_query_count`` always equals
+    ``cache_stats["queries"]``. For the batch total, read ``stats()`` on the
+    runner that was passed in. This changed in schema version 3.2 — see
+    :data:`SCHEMA_VERSION`.
     """
 
     original_uri: str
@@ -2329,6 +2515,10 @@ def select_candidate_classes(
                 "use make_dbpedia_runner() to opt in to network access"
             )
         runner = SparqlRunner(client=client, cache=cache)
+    # From here on every query goes through a per-invocation counter view, so
+    # the counters this call reports describe this Answer and no other. The
+    # caller's runner keeps its cumulative totals for the batch as a whole.
+    runner = PerAnswerRunner(runner)
     _validate_selector_config(
         alpha=alpha,
         top_n=top_n,
@@ -2373,6 +2563,13 @@ def select_candidate_classes(
 
     original_uri = _strip_uri(answer_uri)
     normalized_request = normalize_category(requested_class) if mode == "manual" else None
+
+    # ``min_local_candidates == 0`` asks for no local guarantee at all, so the
+    # requirement is vacuously satisfied: no member query is issued, no probe
+    # budget is spent, no class is rejected for want of local members, and the
+    # Answer need not appear in the local index. Supplying an index is then a
+    # way to record local identity, not a constraint to satisfy.
+    local_check_required = local_index is not None and int(min_local_candidates) > 0
 
     # -- manual mode: reject an unusable request before spending any query ---
     if mode == "manual":
@@ -2456,9 +2653,47 @@ def select_candidate_classes(
         and info.query_status is not QueryStatus.FAILED
         and needs_redirect
     ):
-        candidate_uri, used = resolve_query_uri(
-            original_uri, resolver=redirect_resolver, enabled=True, max_hops=1
-        )
+        def failed_here(
+            *, uri: str, error: Optional[str], redirect_used: bool
+        ) -> ClassSelectionResult:
+            """A transport failure during redirect handling, reported as one."""
+            return _result(
+                info=AnswerInfo(
+                    original_uri=original_uri,
+                    query_uri=uri,
+                    label=info.label,
+                    abstract=info.abstract,
+                    categories=info.categories,
+                    categories_truncated=info.categories_truncated,
+                    member_of_requested_class=info.member_of_requested_class,
+                    query_status=QueryStatus.FAILED,
+                    error=error,
+                    redirect_used=redirect_used,
+                ),
+                mode=mode,
+                status=SelectionStatus.QUERY_FAILED,
+                runner=runner,
+                config=config,
+                display_label=format_display_label(
+                    original_uri, rdfs_label=info.label, language=language,
+                    disambiguator_suffixes=disambiguator_suffixes,
+                ),
+                requested_class=requested_class,
+                error=error,
+            )
+
+        try:
+            candidate_uri, used = resolve_query_uri(
+                original_uri,
+                resolver=_bind_redirect_resolver(redirect_resolver, runner),
+                enabled=True,
+                max_hops=1,
+            )
+        except RedirectQueryFailed as exc:
+            # The lookup did not answer. Continuing would report "no subject
+            # categories" — a claim about the Answer — on the strength of a
+            # failed query.
+            return failed_here(uri=query_uri, error=exc.error, redirect_used=False)
         if used and candidate_uri != query_uri:
             retried = fetch_answer_info(
                 runner,
@@ -2469,6 +2704,15 @@ def select_candidate_classes(
                 membership_class=normalized_request,
                 fetch_categories=(mode != "manual"),
             )
+            if retried.query_status is QueryStatus.FAILED:
+                # The redirect was resolved but the canonical target could not
+                # be read. Falling back to the original URI's successful
+                # zero-category answer would silently substitute a data finding
+                # for a transport failure, and would do so precisely for the
+                # entities the redirect exists to repair.
+                return failed_here(
+                    uri=candidate_uri, error=retried.error, redirect_used=True
+                )
             # Switch only when the target supplies what the original lacked,
             # judged by the same criterion that triggered the hop. Adopting a
             # target merely because it carries a label would rewrite
@@ -2480,7 +2724,7 @@ def select_candidate_classes(
                 improved = bool(retried.categories) or (
                     not info.label and not info.categories and bool(retried.label)
                 )
-            if retried.query_status is not QueryStatus.FAILED and improved:
+            if improved:  # a failed retry already returned above
                 info = AnswerInfo(
                     original_uri=original_uri,
                     query_uri=candidate_uri,
@@ -2516,7 +2760,7 @@ def select_candidate_classes(
         local_uri = local_kg_key(local_index, query_uri) or local_kg_key(
             local_index, original_uri
         )
-        if local_uri is None:
+        if local_uri is None and local_check_required:
             return _result(
                 info=info,
                 mode=mode,
@@ -2672,8 +2916,11 @@ def select_candidate_classes(
             unleaked.append(candidate)
 
     # -- 5) Local feasibility ------------------------------------------------
+    # Skipped entirely when no local guarantee was requested, which leaves every
+    # candidate's ``local_check`` at NOT_APPLICABLE: no check was required, so
+    # none is reported as having been made.
     feasible: list[ClassCandidate] = unleaked
-    if local_index is not None and unleaked:
+    if local_check_required and unleaked:
         probe_order = first_feasible_order(unleaked, candidate_priority)
         outcomes, probe_failed = _probe_local_counts(
             runner,
@@ -2936,7 +3183,7 @@ def _select_manual(
             [_reject(candidate, REASON_HARD_LEAK, f"hard leak: {verdict.reason}")],
         )
 
-    if local_index is not None:
+    if local_index is not None and int(min_local_candidates) > 0:
         outcome, failed = _count_local_members(
             runner,
             normalized_request,

@@ -1132,6 +1132,242 @@ def test_manual_mode_adopts_a_redirect_only_when_it_confirms_membership():
 
 
 # ---------------------------------------------------------------------------
+# Provenance of the built-in redirect query
+# ---------------------------------------------------------------------------
+
+REDIRECT_TARGET = RESOURCE + "Yamanaka_Shinya"
+
+# The full query sequence of a selection that follows one redirect: the
+# original URI's two queries, the redirect lookup, the target's two queries,
+# and the category count.
+REDIRECT_QIDS = [
+    "answer_info", "answer_categories", "redirect",
+    "answer_info", "answer_categories", "category_counts",
+]
+
+
+class RedirectingClient(FakeSparqlClient):
+    """Original URI: a label and no categories. Target: one usable category."""
+
+    def _rows(self, qid, query):
+        if qid == "answer_categories" and f"<{ANSWER}>" in query:
+            return []  # successful zero-result on the original URI
+        return super()._rows(qid, query)
+
+
+def redirecting_client(**overrides):
+    defaults = dict(
+        label="Shinya Yamanaka",
+        categories=(CAT_NOBEL,),
+        counts={CAT_NOBEL: 30},
+        redirect_map={ANSWER: REDIRECT_TARGET},
+    )
+    defaults.update(overrides)
+    return RedirectingClient(**defaults)
+
+
+def test_the_builtin_redirect_query_is_counted_against_the_answer():
+    """A resolver over the shared runner must not query around the counter view."""
+    client = redirecting_client()
+    shared = ce.SparqlRunner(client=client)
+    resolver = ce.SparqlRedirectResolver(shared)
+
+    result = ce.select_candidate_classes(
+        ANSWER, mode="recommended", runner=shared,
+        resolve_redirects=True, redirect_resolver=resolver,
+    )
+
+    assert client.calls == REDIRECT_QIDS, client.calls
+    assert result.redirect_used is True
+    assert result.query_uri == REDIRECT_TARGET
+    assert result.original_uri == ANSWER
+    assert result.selection_status is ce.SelectionStatus.OK
+
+    assert result.sparql_query_count == 6
+    assert result.cache_stats["queries"] == 6
+    assert result.sparql_query_count == result.cache_stats["queries"]
+    assert shared.stats()["queries"] == 6, "no query may be double-counted"
+    assert shared.stats()["client_calls"] == len(client.calls)
+
+
+def test_redirect_counters_stay_per_answer_across_a_shared_cache():
+    client = redirecting_client()
+    cache = ce.InMemorySparqlCache()
+    shared = ce.SparqlRunner(client=client, cache=cache)
+    resolver = ce.SparqlRedirectResolver(shared)
+
+    kwargs = dict(
+        mode="recommended", runner=shared,
+        resolve_redirects=True, redirect_resolver=resolver,
+    )
+    first = ce.select_candidate_classes(ANSWER, **kwargs)
+    calls_after_first = len(client.calls)
+    second = ce.select_candidate_classes(ANSWER, **kwargs)
+
+    assert first.sparql_query_count == 6
+    assert first.cache_stats["cache_hits"] == 0
+    assert first.cache_stats["client_calls"] == 6
+
+    assert second.sparql_query_count == 6, "the same six queries, all cached"
+    assert second.cache_stats["cache_hits"] == 6, (
+        "including the redirect lookup's own cache hit"
+    )
+    assert second.cache_stats["client_calls"] == 0
+    assert len(client.calls) == calls_after_first, "the client was not called again"
+
+    assert shared.stats()["queries"] == 12
+    assert shared.stats()["cache_hits"] == 6
+    assert shared.stats()["client_calls"] == 6
+
+
+def test_a_failed_redirect_query_is_a_query_failure_not_a_missing_category():
+    """A lookup that did not answer licenses no conclusion about the Answer."""
+    client = redirecting_client(fail_qids={"redirect"})
+    shared = ce.SparqlRunner(client=client)
+
+    result = ce.select_candidate_classes(
+        ANSWER, mode="recommended", runner=shared, resolve_redirects=True,
+        redirect_resolver=ce.SparqlRedirectResolver(shared),
+    )
+
+    assert result.selection_status is ce.SelectionStatus.QUERY_FAILED
+    assert result.query_status is ce.QueryStatus.FAILED
+    assert result.selection_status is not ce.SelectionStatus.NO_SUBJECT_CATEGORIES
+    assert result.error and "simulated endpoint failure for redirect" in result.error
+
+    assert client.calls == ["answer_info", "answer_categories", "redirect"]
+    assert "answer_info" not in client.calls[3:], "no target query may be issued"
+    assert result.sparql_query_count == 3, "the failed redirect query is counted"
+    assert result.cache_stats["failed"] == 1
+    assert shared.stats()["failed"] == 1
+    assert result.original_uri == ANSWER
+
+
+def test_a_successful_zero_result_redirect_is_not_a_failure():
+    """The other half of the distinction: answered, and there is no redirect."""
+    client = redirecting_client(redirect_map={})
+    shared = ce.SparqlRunner(client=client)
+
+    result = ce.select_candidate_classes(
+        ANSWER, mode="recommended", runner=shared, resolve_redirects=True,
+        redirect_resolver=ce.SparqlRedirectResolver(shared),
+    )
+
+    assert result.selection_status is ce.SelectionStatus.NO_SUBJECT_CATEGORIES
+    assert result.selection_status is not ce.SelectionStatus.QUERY_FAILED
+    assert result.query_status is not ce.QueryStatus.FAILED
+    assert result.redirect_used is False
+    assert result.query_uri == ANSWER
+    assert result.sparql_query_count == 3
+    assert shared.stats()["failed"] == 0
+
+
+@pytest.mark.parametrize("failing_qid", ["answer_info", "answer_categories"])
+def test_a_failure_reading_the_redirect_target_is_not_discarded(failing_qid):
+    """The original's zero-category answer must not stand in for a failed target."""
+
+    class TargetFailsClient(RedirectingClient):
+        def run(self, query):
+            qid = ce.query_id(query)
+            if qid == failing_qid and f"<{REDIRECT_TARGET}>" in query:
+                self.calls.append(qid)
+                return ce.QueryResult(
+                    status=ce.QueryStatus.FAILED,
+                    error=f"simulated failure reading the target's {qid}",
+                    endpoint=self.endpoint,
+                    language=self.language,
+                )
+            return super().run(query)
+
+    client = TargetFailsClient(
+        label="Shinya Yamanaka",
+        categories=(CAT_NOBEL,),
+        counts={CAT_NOBEL: 30},
+        redirect_map={ANSWER: REDIRECT_TARGET},
+    )
+    shared = ce.SparqlRunner(client=client)
+
+    result = ce.select_candidate_classes(
+        ANSWER, mode="recommended", runner=shared, resolve_redirects=True,
+        redirect_resolver=ce.SparqlRedirectResolver(shared),
+    )
+
+    assert result.selection_status is ce.SelectionStatus.QUERY_FAILED
+    assert result.query_status is ce.QueryStatus.FAILED
+    assert result.selection_status is not ce.SelectionStatus.NO_SUBJECT_CATEGORIES
+    assert result.error == f"simulated failure reading the target's {failing_qid}"
+    assert result.original_uri == ANSWER, "the original URI is never rewritten"
+
+    # Original URI (2) + redirect (1) + target queries up to the failure.
+    expected = 4 if failing_qid == "answer_info" else 5
+    assert result.sparql_query_count == expected, client.calls
+    assert result.cache_stats["queries"] == expected
+    assert shared.stats()["queries"] == expected
+    assert result.cache_stats["failed"] == 1
+
+
+def test_a_custom_resolver_error_is_still_contained():
+    """Only an explicit SPARQL failure escapes; a resolver's own bug does not."""
+
+    class ExplodingResolver:
+        def resolve(self, uri):
+            raise ValueError("resolver bug, not an endpoint failure")
+
+    client = redirecting_client()
+    result = ce.select_candidate_classes(
+        ANSWER, mode="recommended", client=client, resolve_redirects=True,
+        redirect_resolver=ExplodingResolver(),
+    )
+    assert result.selection_status is ce.SelectionStatus.NO_SUBJECT_CATEGORIES
+    assert result.query_status is not ce.QueryStatus.FAILED
+
+    # The typed failure, by contrast, propagates out of resolve_query_uri.
+    class FailingResolver:
+        def resolve(self, uri):
+            raise ce.RedirectQueryFailed(uri, "endpoint refused the lookup")
+
+    with pytest.raises(ce.RedirectQueryFailed):
+        ce.resolve_query_uri(ANSWER, resolver=FailingResolver(), enabled=True)
+
+
+def test_sparql_redirect_resolver_separates_its_three_outcomes():
+    found = FakeSparqlClient(redirect_map={ANSWER: REDIRECT_TARGET})
+    assert ce.SparqlRedirectResolver(
+        ce.SparqlRunner(client=found)
+    ).resolve(ANSWER) == REDIRECT_TARGET
+
+    absent = FakeSparqlClient()
+    assert ce.SparqlRedirectResolver(
+        ce.SparqlRunner(client=absent)
+    ).resolve(ANSWER) is None
+
+    broken = FakeSparqlClient(fail_qids={"redirect"})
+    with pytest.raises(ce.RedirectQueryFailed) as excinfo:
+        ce.SparqlRedirectResolver(ce.SparqlRunner(client=broken)).resolve(ANSWER)
+    assert excinfo.value.uri == ANSWER
+    assert "simulated endpoint failure" in (excinfo.value.error or "")
+
+
+def test_a_resolver_on_a_foreign_runner_is_left_alone():
+    """Rebinding must never move a query onto a different transport."""
+    client = redirecting_client()
+    other_client = redirecting_client()
+    shared = ce.SparqlRunner(client=client)
+    foreign = ce.SparqlRunner(client=other_client)
+    resolver = ce.SparqlRedirectResolver(foreign)
+
+    bound = ce._bind_redirect_resolver(resolver, ce.PerAnswerRunner(shared))
+    assert bound is resolver, "a foreign transport must not be rebound"
+
+    same = ce.SparqlRedirectResolver(shared)
+    view = ce.PerAnswerRunner(shared)
+    rebound = ce._bind_redirect_resolver(same, view)
+    assert rebound is not same
+    assert rebound.runner is view
+    assert ce._base_runner(view) is shared
+
+
+# ---------------------------------------------------------------------------
 # Truncated member retrieval must never prove a shortage of local candidates
 # ---------------------------------------------------------------------------
 
@@ -1611,12 +1847,209 @@ def test_the_answer_is_excluded_on_the_paginated_path_too():
 
 
 # ---------------------------------------------------------------------------
+# min_local_candidates == 0 asks for no local guarantee
+# ---------------------------------------------------------------------------
+
+
+MEMBER_QIDS = ("class_members", "class_members_batch")
+
+
+@pytest.mark.parametrize("mode", ["manual", "recommended", "first_feasible"])
+@pytest.mark.parametrize("index_has_answer", [True, False])
+def test_zero_min_local_candidates_skips_the_local_check(mode, index_has_answer):
+    """Vacuously satisfied: no member query, no probe budget, no rejection."""
+    client = make_client(member=True)
+    index = local_index_for(client) if index_has_answer else {"<%s>" % OTHER_ANSWER: 0}
+
+    kwargs = dict(
+        client=client, local_index=index,
+        min_local_candidates=0, max_local_probes=0,
+    )
+    if mode == "manual":
+        kwargs["requested_class"] = CAT_NOBEL
+    result = ce.select_candidate_classes(ANSWER, mode=mode, **kwargs)
+
+    assert result.selection_status is ce.SelectionStatus.OK
+    assert result.selected_class is not None
+    assert not any(qid in MEMBER_QIDS for qid in client.calls), (
+        f"no member query may be issued: {client.calls}"
+    )
+    for candidate in result.evaluated_classes:
+        assert candidate.local_check is ce.LocalCheck.NOT_APPLICABLE
+        assert candidate.local_count is None
+        assert candidate.rejected_code != ce.REASON_LOCAL_NOT_PROBED
+        assert candidate.rejected_code != ce.REASON_LOCAL_TOO_FEW
+        assert candidate.rejected_code != ce.REASON_LOCAL_INCONCLUSIVE
+    assert result.selection_status is not ce.SelectionStatus.LOCAL_URI_NOT_FOUND
+
+
+def test_zero_min_local_candidates_still_applies_remote_checks():
+    """Skipping the local check must not weaken remote feasibility."""
+    client = make_client(counts={CAT_BIO: 2, CAT_NOBEL: 3, CAT_STEM: 4})
+    result = ce.select_candidate_classes(
+        ANSWER, mode="recommended", client=client,
+        local_index=local_index_for(client),
+        min_local_candidates=0, max_local_probes=0,
+    )
+    assert result.selection_status is ce.SelectionStatus.ALL_CATEGORIES_REJECTED
+    assert ce.REASON_TOO_SMALL in result.number_rejected_by_reason
+    assert not any(qid in MEMBER_QIDS for qid in client.calls)
+
+
+def test_a_missing_local_uri_still_fails_when_a_local_guarantee_is_requested():
+    """The default of 10 is untouched: the index requirement still bites."""
+    client = make_client(member=True)
+    result = ce.select_candidate_classes(
+        ANSWER, mode="recommended", client=client,
+        local_index={"<%s>" % OTHER_ANSWER: 0},
+    )
+    assert ce.DEFAULT_MIN_LOCAL_CANDIDATES == 10
+    assert result.selection_status is ce.SelectionStatus.LOCAL_URI_NOT_FOUND
+
+
+# ---------------------------------------------------------------------------
+# An incompatible cache file is refused without being touched
+# ---------------------------------------------------------------------------
+
+
+def _tables(path):
+    import sqlite3
+
+    conn = sqlite3.connect(path)
+    try:
+        return {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+    finally:
+        conn.close()
+
+
+def test_a_mismatched_schema_version_is_refused_before_any_table_is_created(tmp_path):
+    """The old order created 'responses' first, marking a file it then refused."""
+    import sqlite3
+
+    path = tmp_path / "v999.sqlite"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    conn.execute("INSERT INTO meta VALUES ('schema_version', 'sparql_cache_v999')")
+    conn.commit()
+    conn.close()
+
+    assert _tables(path) == {"meta"}, "the fixture must have no 'responses' table"
+    before_bytes = path.read_bytes()
+    before_digest = hashlib.sha256(before_bytes).hexdigest()
+
+    with pytest.raises(ce.CacheSchemaMismatch):
+        ce.SqliteSparqlCache(path).get("anything")
+
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before_digest
+    assert path.read_bytes() == before_bytes, "the incompatible file was modified"
+    assert "responses" not in _tables(path), "a table was created in a refused file"
+    assert _tables(path) == {"meta"}
+
+
+def test_a_meta_table_without_a_schema_version_is_refused(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "no_version.sqlite"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    conn.execute("INSERT INTO meta VALUES ('endpoint', 'http://fake.invalid/sparql')")
+    conn.commit()
+    conn.close()
+    before = path.read_bytes()
+
+    with pytest.raises(ce.CacheSchemaMismatch):
+        ce.SqliteSparqlCache(path).get("anything")
+    assert path.read_bytes() == before
+    assert "responses" not in _tables(path)
+
+
+def test_a_matching_version_with_a_missing_table_is_refused_not_repaired(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "incomplete.sqlite"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    conn.execute(
+        "INSERT INTO meta VALUES ('schema_version', ?)", (ce.CACHE_SCHEMA_VERSION,)
+    )
+    conn.commit()
+    conn.close()
+    before = path.read_bytes()
+
+    with pytest.raises(ce.CacheSchemaMismatch):
+        ce.SqliteSparqlCache(path).get("anything")
+    assert path.read_bytes() == before, "an incomplete cache must not be repaired"
+    assert "responses" not in _tables(path)
+
+
+def test_a_new_database_is_still_created_normally(tmp_path):
+    path = tmp_path / "fresh" / "cache.sqlite"
+    cache = ce.SqliteSparqlCache(path, endpoint="http://fake.invalid/sparql")
+    cache.put("k", {
+        "endpoint": "http://fake.invalid/sparql", "language": "en",
+        "response_json": "[]", "query_status": "ok", "retrieved_at": 1.0,
+    })
+    assert _tables(path) == {"responses", "meta"}
+    assert cache.meta()["schema_version"] == ce.CACHE_SCHEMA_VERSION
+    assert cache.get("k") is not None
+    cache.close()
+
+    # Reopening a complete, matching database succeeds.
+    again = ce.SqliteSparqlCache(path, endpoint="http://fake.invalid/sparql")
+    assert again.get("k") is not None
+    again.close()
+
+
+# ---------------------------------------------------------------------------
+# Bypass provenance survives failure
+# ---------------------------------------------------------------------------
+
+
+def test_a_bypassed_failure_is_reported_as_bypass_not_miss():
+    cache = ce.InMemorySparqlCache()
+    broken = FakeSparqlClient(raise_qids={"answer_info"})
+    runner = ce.SparqlRunner(client=broken, cache=cache, bypass=True)
+
+    result = runner.run(ce.build_answer_info_query(ANSWER))
+
+    assert result.status is ce.QueryStatus.FAILED
+    assert result.cache_status is ce.CacheStatus.BYPASS
+    assert result.cache_status is not ce.CacheStatus.MISS
+    assert len(cache) == 0, "a bypassed run must write nothing"
+    assert runner.n_failed == 1
+
+
+def test_failure_cache_status_still_distinguishes_disabled_and_miss():
+    """The other two failure provenances are unchanged."""
+    disabled = ce.SparqlRunner(client=FakeSparqlClient(raise_qids={"answer_info"}))
+    assert disabled.run(
+        ce.build_answer_info_query(ANSWER)
+    ).cache_status is ce.CacheStatus.DISABLED
+
+    cache = ce.InMemorySparqlCache()
+    missing = ce.SparqlRunner(
+        client=FakeSparqlClient(raise_qids={"answer_info"}), cache=cache
+    )
+    assert missing.run(
+        ce.build_answer_info_query(ANSWER)
+    ).cache_status is ce.CacheStatus.MISS
+    assert len(cache) == 0
+
+
+# ---------------------------------------------------------------------------
 # Result schema version
 # ---------------------------------------------------------------------------
 
 
 def test_result_schema_version_is_bumped_and_the_cache_schema_is_not():
-    assert ce.SCHEMA_VERSION == "category_selector_v3.1"
+    # 3.2: sparql_query_count and cache_stats became per-Answer rather than
+    # cumulative, so records from 3.1 and 3.2 are not counter-comparable.
+    # 3.3: those counters now include the built-in redirect query, so
+    # redirect-enabled 3.2 and 3.3 records are not comparable either.
+    assert ce.SCHEMA_VERSION == "category_selector_v3.3"
     assert ce.CACHE_SCHEMA_VERSION == "sparql_cache_v3.0", (
         "the SQLite table schema has not changed, so its version must not move"
     )
@@ -1628,9 +2061,138 @@ def test_serialised_results_carry_the_new_schema_version():
     result = ce.select_candidate_classes(
         ANSWER, mode="recommended", client=make_client()
     )
-    assert result.schema_version == "category_selector_v3.1"
-    assert result.to_dict()["schema_version"] == "category_selector_v3.1"
-    assert json.loads(result.to_json())["schema_version"] == "category_selector_v3.1"
+    assert result.schema_version == "category_selector_v3.3"
+    assert result.to_dict()["schema_version"] == "category_selector_v3.3"
+    assert json.loads(result.to_json())["schema_version"] == "category_selector_v3.3"
+
+
+# ---------------------------------------------------------------------------
+# Result counters describe one Answer, not the runner's running total
+# ---------------------------------------------------------------------------
+
+
+OTHER_ANSWER = RESOURCE + "Kenichi_Fukui"
+
+
+def test_a_reused_runner_reports_each_answer_separately():
+    """Two Answers on one runner must not inherit each other's counters."""
+    client = make_client()
+    runner = ce.SparqlRunner(client=client)
+
+    first = ce.select_candidate_classes(ANSWER, mode="recommended", runner=runner)
+    second = ce.select_candidate_classes(OTHER_ANSWER, mode="recommended", runner=runner)
+
+    assert first.sparql_query_count > 0
+    assert second.sparql_query_count > 0
+    assert second.sparql_query_count == first.sparql_query_count, (
+        "the same work must cost the same, whichever Answer ran first"
+    )
+    # The bug this guards: the second result reporting first + second.
+    assert second.sparql_query_count != (
+        first.sparql_query_count + second.sparql_query_count
+    )
+    # The runner keeps the batch total.
+    assert runner.stats()["queries"] == (
+        first.sparql_query_count + second.sparql_query_count
+    )
+    assert runner.n_queries == len(client.calls)
+
+    for result in (first, second):
+        assert result.sparql_query_count == result.cache_stats["queries"]
+        assert set(result.cache_stats) == {
+            "queries", "cache_hits", "client_calls", "failed", "zero_results"
+        }
+
+
+def test_cache_hits_are_scoped_to_the_answer_that_incurred_them():
+    client = make_client()
+    cache = ce.InMemorySparqlCache()
+    runner = ce.SparqlRunner(client=client, cache=cache)
+
+    first = ce.select_candidate_classes(ANSWER, mode="recommended", runner=runner)
+    calls_after_first = len(client.calls)
+    second = ce.select_candidate_classes(ANSWER, mode="recommended", runner=runner)
+
+    assert first.cache_stats["cache_hits"] == 0, "nothing was cached yet"
+    assert first.cache_stats["client_calls"] == first.sparql_query_count
+
+    assert second.cache_stats["cache_hits"] == second.sparql_query_count, (
+        "every query of the repeat run was served from cache"
+    )
+    assert second.cache_stats["client_calls"] == 0
+    assert len(client.calls) == calls_after_first, "the client was not called again"
+
+    # Cumulative view is unchanged and is the sum of the two.
+    assert runner.stats()["queries"] == (
+        first.sparql_query_count + second.sparql_query_count
+    )
+    assert runner.stats()["cache_hits"] == second.cache_stats["cache_hits"]
+    assert runner.stats()["client_calls"] == calls_after_first
+
+
+def test_an_early_return_reports_zero_not_the_runners_history():
+    """A result produced before any query must not inherit earlier counters."""
+    client = make_client()
+    runner = ce.SparqlRunner(client=client)
+
+    warmup = ce.select_candidate_classes(ANSWER, mode="recommended", runner=runner)
+    assert runner.n_queries > 0, "the runner must carry a nonzero history"
+
+    # A foreign host can never denote a DBpedia category, so manual mode
+    # refuses it before spending a query.
+    rejected = ce.select_candidate_classes(
+        ANSWER, mode="manual",
+        requested_class="http://evil.example/resource/Category:X",
+        runner=runner,
+    )
+    assert rejected.selection_status is ce.SelectionStatus.MANUAL_CLASS_INVALID
+    assert rejected.sparql_query_count == 0
+    assert rejected.cache_stats == {
+        "queries": 0, "cache_hits": 0, "client_calls": 0,
+        "failed": 0, "zero_results": 0,
+    }
+    assert runner.stats()["queries"] == warmup.sparql_query_count, (
+        "the rejected request must not have spent a query either"
+    )
+
+
+def test_failure_counters_are_also_per_answer():
+    client = make_client(fail_qids={"answer_info"})
+    runner = ce.SparqlRunner(client=client)
+
+    first = ce.select_candidate_classes(ANSWER, mode="recommended", runner=runner)
+    second = ce.select_candidate_classes(OTHER_ANSWER, mode="recommended", runner=runner)
+
+    assert first.query_status is ce.QueryStatus.FAILED
+    assert first.cache_stats["failed"] == 1
+    assert second.cache_stats["failed"] == 1, "not 2"
+    assert runner.stats()["failed"] == 2
+
+
+def test_per_answer_runner_delegates_without_disturbing_the_shared_runner():
+    """The wrapper is a counter view: caching and transport are the delegate's."""
+    client = make_client()
+    cache = ce.InMemorySparqlCache()
+    shared = ce.SparqlRunner(client=client, cache=cache)
+    view = ce.PerAnswerRunner(shared)
+
+    query = ce.build_answer_info_query(ANSWER)
+    first = view.run(query)
+    assert first.cache_status is ce.CacheStatus.MISS
+    assert view.stats() == shared.stats()
+
+    second = view.run(query)
+    assert second.cache_status is ce.CacheStatus.HIT
+    assert view.stats()["cache_hits"] == 1
+
+    # A fresh view over the same runner starts at zero; the runner does not.
+    fresh = ce.PerAnswerRunner(shared)
+    assert fresh.stats() == {
+        "queries": 0, "cache_hits": 0, "client_calls": 0,
+        "failed": 0, "zero_results": 0,
+    }
+    assert shared.stats()["queries"] == 2
+    assert fresh.endpoint == shared.endpoint and fresh.language == shared.language
 
 
 def test_eligible_remote_count_is_serialised_and_reported():
