@@ -1,0 +1,138 @@
+{
+  "provenance": {
+    "description": "HanamiSpots offline regression fixture: 4 seed Hanami spots plus their complete URI-valued one-hop IN/OUT neighbourhood, with the induced edge set. Reproduces Explainability_of_LRoleSim.pdf p.1 (13 nodes, 15 edges, 6 edge labels) and p.2 'Final similarity' column.",
+    "extracted_from": "data/infobox.pickle_EnglishVersion_EntityType",
+    "source_pickle_sha256": "e230c5b95e20093631697624d9c46f30a14081b3f415d5027ffaf313bdbbea1b",
+    "extraction_date": "2026-07-30",
+    "pdf_evidence": "docs/references/Explainability_of_LRoleSim.pdf pages 1-2",
+    "pdf_sha256": "2aadbc087c14ba4d0e99b37f21589c953931f6b3286be35bd8293ce9ebd58804",
+    "network_used": false
+  },
+  "seeds": [
+    "<http://dbpedia.org/resource/Kamagatani>",
+    "<http://dbpedia.org/resource/Hinokinai_River_Embankment>",
+    "<http://dbpedia.org/resource/Tamagawadai_Park>",
+    "<http://dbpedia.org/resource/Sakurayama>"
+  ],
+  "query": "<http://dbpedia.org/resource/Kamagatani>",
+  "nodes": [
+    "<http://dbpedia.org/resource/Kamagatani>",
+    "<http://dbpedia.org/resource/Tamagawa_Station_(Tokyo)>",
+    "<http://dbpedia.org/resource/Semboku,_Akita>",
+    "<http://dbpedia.org/resource/Japan>",
+    "<http://dbpedia.org/resource/Ikeda,_Gifu>",
+    "<http://dbpedia.org/resource/GifuPrefecture>",
+    "<http://dbpedia.org/resource/Sakurayama>",
+    "<http://dbpedia.org/resource/Tamagawadai_Park>",
+    "<http://dbpedia.org/resource/Gunma_Prefecture>",
+    "<http://dbpedia.org/resource/Hinokinai_River_Embankment>",
+    "<http://dbpedia.org/resource/Kantō_region>",
+    "<http://dbpedia.org/resource/Akita_Prefecture>",
+    "<http://dbpedia.org/resource/Urban_park>"
+  ],
+  "edges": [
+    [
+      "<http://dbpedia.org/resource/Gunma_Prefecture>",
+      "<http://dbpedia.org/property/subdivisionName>",
+      "<http://dbpedia.org/resource/Kantō_region>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Hinokinai_River_Embankment>",
+      "<http://dbpedia.org/property/location>",
+      "<http://dbpedia.org/resource/Akita_Prefecture>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Hinokinai_River_Embankment>",
+      "<http://dbpedia.org/property/location>",
+      "<http://dbpedia.org/resource/Japan>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Hinokinai_River_Embankment>",
+      "<http://dbpedia.org/property/location>",
+      "<http://dbpedia.org/resource/Semboku,_Akita>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Hinokinai_River_Embankment>",
+      "<http://dbpedia.org/property/type>",
+      "<http://dbpedia.org/resource/Urban_park>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Ikeda,_Gifu>",
+      "<http://dbpedia.org/property/subdivisionName>",
+      "<http://dbpedia.org/resource/Japan>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Kamagatani>",
+      "<http://dbpedia.org/property/location>",
+      "<http://dbpedia.org/resource/GifuPrefecture>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Kamagatani>",
+      "<http://dbpedia.org/property/location>",
+      "<http://dbpedia.org/resource/Ikeda,_Gifu>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Kamagatani>",
+      "<http://dbpedia.org/property/location>",
+      "<http://dbpedia.org/resource/Japan>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Kamagatani>",
+      "<http://dbpedia.org/property/type>",
+      "<http://dbpedia.org/resource/Urban_park>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Sakurayama>",
+      "<http://dbpedia.org/property/region>",
+      "<http://dbpedia.org/resource/Kantō_region>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Sakurayama>",
+      "<http://dbpedia.org/property/state>",
+      "<http://dbpedia.org/resource/Gunma_Prefecture>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Semboku,_Akita>",
+      "<http://dbpedia.org/property/subdivisionName>",
+      "<http://dbpedia.org/resource/Akita_Prefecture>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Semboku,_Akita>",
+      "<http://dbpedia.org/property/subdivisionName>",
+      "<http://dbpedia.org/resource/Japan>"
+    ],
+    [
+      "<http://dbpedia.org/resource/Tamagawadai_Park>",
+      "<http://dbpedia.org/property/publictransit>",
+      "<http://dbpedia.org/resource/Tamagawa_Station_(Tokyo)>"
+    ]
+  ],
+  "edge_labels": [
+    "<http://dbpedia.org/property/location>",
+    "<http://dbpedia.org/property/publictransit>",
+    "<http://dbpedia.org/property/region>",
+    "<http://dbpedia.org/property/state>",
+    "<http://dbpedia.org/property/subdivisionName>",
+    "<http://dbpedia.org/property/type>"
+  ],
+  "entity_types": {
+    "<http://dbpedia.org/resource/Kamagatani>": 4,
+    "<http://dbpedia.org/resource/Tamagawa_Station_(Tokyo)>": 3,
+    "<http://dbpedia.org/resource/Semboku,_Akita>": 2,
+    "<http://dbpedia.org/resource/Japan>": 0,
+    "<http://dbpedia.org/resource/Ikeda,_Gifu>": 4,
+    "<http://dbpedia.org/resource/GifuPrefecture>": 4,
+    "<http://dbpedia.org/resource/Sakurayama>": 3,
+    "<http://dbpedia.org/resource/Tamagawadai_Park>": 3,
+    "<http://dbpedia.org/resource/Gunma_Prefecture>": 3,
+    "<http://dbpedia.org/resource/Hinokinai_River_Embankment>": 2,
+    "<http://dbpedia.org/resource/Kantō_region>": 3,
+    "<http://dbpedia.org/resource/Akita_Prefecture>": 2,
+    "<http://dbpedia.org/resource/Urban_park>": 0
+  },
+  "expected_structure": {
+    "nodes": 13,
+    "edges": 15,
+    "edge_labels": 6
+  }
+}
