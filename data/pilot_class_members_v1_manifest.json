@@ -1,0 +1,401 @@
+{
+  "boundaries": [
+    "the mapping gate is a NECESSARY MAPPING condition only; it is not graph-budget feasibility",
+    "no graph was built, no OverlapScore computed, no LRoleSim run, no distractor selected, no rationale produced",
+    "URI and local-index order are deterministic serialisation only, not the pilot's candidate-prioritization policy",
+    "an unresolved member is an open-world absence in this dump, never a claim that the entity does not exist"
+  ],
+  "counts": {
+    "answer_class_row_count": 27,
+    "candidate_profile_row_count": 847,
+    "class_member_page_count": 23,
+    "exact_local_mappings": 870,
+    "failed_page_count": 0,
+    "pilot_answer_count": 9,
+    "query_log_record_count": 32,
+    "query_page_count": 32,
+    "raw_member_count": 1155,
+    "redirect_batch_page_count": 9,
+    "redirect_local_mappings": 4,
+    "redirect_lookups_attempted": 398,
+    "successful_page_count": 32,
+    "unique_approved_class_count": 23,
+    "unique_member_count": 1155,
+    "unresolved_count": 493
+  },
+  "endpoint": "https://dbpedia.org/sparql",
+  "frozen_export": {
+    "jsonl_path": "/home/thuy/projects/mcq_journal2/data/pilot_class_members_v1.jsonl",
+    "jsonl_sha256": "6a5fd205c93de5ba3c16843e0bf045b5a70f9d5b57a8e51e369c19d59578a622",
+    "jsonl_size_bytes": 101712
+  },
+  "frozen_export_written": true,
+  "inputs": {
+    "expected_local_kg_sha256": "e230c5b95e20093631697624d9c46f30a14081b3f415d5027ffaf313bdbbea1b",
+    "local_kg_path": "/home/thuy/projects/mcq_journal2/data/infobox.pickle_EnglishVersion_EntityType",
+    "local_kg_sha256": "e230c5b95e20093631697624d9c46f30a14081b3f415d5027ffaf313bdbbea1b",
+    "local_kg_sha256_verified": true,
+    "local_kg_size_bytes": 1224842721,
+    "policy_csv_path": "/home/thuy/projects/mcq_journal2/data/pilot_class_policy_v1.csv",
+    "policy_csv_sha256": "2ae6ef66db1fbac7d737ebab67628b663b7e3c998d7e2c5c4b1ef474ba6e7d99",
+    "policy_forms_agree": true,
+    "policy_json_path": "/home/thuy/projects/mcq_journal2/data/pilot_class_policy_v1.json",
+    "policy_json_sha256": "8e7a0608be4577138c2331072133965abf30b3e9b62c573581dd6a4607175208"
+  },
+  "local_timezone_name": "JST",
+  "mapping_stage_outcomes": [
+    {
+      "answer_uri": "http://dbpedia.org/resource/Shinya_Yamanaka",
+      "attempts": [
+        {
+          "class_position": "preferred",
+          "class_uri": "http://dbpedia.org/resource/Category:Japanese_Nobel_laureates",
+          "mapped_candidate_count_excluding_answer": 24,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_1",
+          "class_uri": "http://dbpedia.org/resource/Category:21st-century_Japanese_biologists",
+          "mapped_candidate_count_excluding_answer": 15,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_2",
+          "class_uri": "http://dbpedia.org/resource/Category:Stem_cell_researchers",
+          "mapped_candidate_count_excluding_answer": 55,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        }
+      ],
+      "display_label": "Shinya Yamanaka",
+      "mapping_gate_threshold": 10,
+      "mapping_stage_status": "MAPPING_SELECTED_PREFERRED",
+      "note": "passes_mapping_gate is a NECESSARY MAPPING condition only; it is not graph-budget feasibility and does not imply that these candidates fit under DEFAULT_MAX_NODES",
+      "pilot_slot": 1,
+      "selected_class_position": "preferred",
+      "selected_class_uri": "http://dbpedia.org/resource/Category:Japanese_Nobel_laureates",
+      "selected_mapped_candidate_count": 24
+    },
+    {
+      "answer_uri": "http://dbpedia.org/resource/Shin'ichirō_Tomonaga",
+      "attempts": [
+        {
+          "class_position": "preferred",
+          "class_uri": "http://dbpedia.org/resource/Category:Japanese_Nobel_laureates",
+          "mapped_candidate_count_excluding_answer": 24,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_1",
+          "class_uri": "http://dbpedia.org/resource/Category:Japanese_theoretical_physicists",
+          "mapped_candidate_count_excluding_answer": 13,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_2",
+          "class_uri": "http://dbpedia.org/resource/Category:Japanese_physicists",
+          "mapped_candidate_count_excluding_answer": 56,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        }
+      ],
+      "display_label": "Shin'ichirō Tomonaga",
+      "mapping_gate_threshold": 10,
+      "mapping_stage_status": "MAPPING_SELECTED_PREFERRED",
+      "note": "passes_mapping_gate is a NECESSARY MAPPING condition only; it is not graph-budget feasibility and does not imply that these candidates fit under DEFAULT_MAX_NODES",
+      "pilot_slot": 2,
+      "selected_class_position": "preferred",
+      "selected_class_uri": "http://dbpedia.org/resource/Category:Japanese_Nobel_laureates",
+      "selected_mapped_candidate_count": 24
+    },
+    {
+      "answer_uri": "http://dbpedia.org/resource/Eisaku_Satō",
+      "attempts": [
+        {
+          "class_position": "preferred",
+          "class_uri": "http://dbpedia.org/resource/Category:Japanese_Nobel_laureates",
+          "mapped_candidate_count_excluding_answer": 24,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_1",
+          "class_uri": "http://dbpedia.org/resource/Category:20th-century_prime_ministers_of_Japan",
+          "mapped_candidate_count_excluding_answer": 55,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_2",
+          "class_uri": "http://dbpedia.org/resource/Category:Nobel_Peace_Prize_laureates",
+          "mapped_candidate_count_excluding_answer": 106,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        }
+      ],
+      "display_label": "Eisaku Satō",
+      "mapping_gate_threshold": 10,
+      "mapping_stage_status": "MAPPING_SELECTED_PREFERRED",
+      "note": "passes_mapping_gate is a NECESSARY MAPPING condition only; it is not graph-budget feasibility and does not imply that these candidates fit under DEFAULT_MAX_NODES",
+      "pilot_slot": 3,
+      "selected_class_position": "preferred",
+      "selected_class_uri": "http://dbpedia.org/resource/Category:Japanese_Nobel_laureates",
+      "selected_mapped_candidate_count": 24
+    },
+    {
+      "answer_uri": "http://dbpedia.org/resource/Carbon",
+      "attempts": [
+        {
+          "class_position": "preferred",
+          "class_uri": "http://dbpedia.org/resource/Category:Reactive_nonmetals",
+          "mapped_candidate_count_excluding_answer": 9,
+          "passes_mapping_gate": false,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_1",
+          "class_uri": "http://dbpedia.org/resource/Category:Chemical_elements",
+          "mapped_candidate_count_excluding_answer": 78,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_2",
+          "class_uri": "http://dbpedia.org/resource/Category:Reducing_agents",
+          "mapped_candidate_count_excluding_answer": 24,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        }
+      ],
+      "display_label": "Carbon",
+      "mapping_gate_threshold": 10,
+      "mapping_stage_status": "MAPPING_SELECTED_FALLBACK_1",
+      "note": "passes_mapping_gate is a NECESSARY MAPPING condition only; it is not graph-budget feasibility and does not imply that these candidates fit under DEFAULT_MAX_NODES",
+      "pilot_slot": 4,
+      "selected_class_position": "fallback_1",
+      "selected_class_uri": "http://dbpedia.org/resource/Category:Chemical_elements",
+      "selected_mapped_candidate_count": 78
+    },
+    {
+      "answer_uri": "http://dbpedia.org/resource/Silicon",
+      "attempts": [
+        {
+          "class_position": "preferred",
+          "class_uri": "http://dbpedia.org/resource/Category:Group_IV_semiconductors",
+          "mapped_candidate_count_excluding_answer": 11,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_1",
+          "class_uri": "http://dbpedia.org/resource/Category:Dietary_minerals",
+          "mapped_candidate_count_excluding_answer": 22,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_2",
+          "class_uri": "http://dbpedia.org/resource/Category:Chemical_elements",
+          "mapped_candidate_count_excluding_answer": 78,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        }
+      ],
+      "display_label": "Silicon",
+      "mapping_gate_threshold": 10,
+      "mapping_stage_status": "MAPPING_SELECTED_PREFERRED",
+      "note": "passes_mapping_gate is a NECESSARY MAPPING condition only; it is not graph-budget feasibility and does not imply that these candidates fit under DEFAULT_MAX_NODES",
+      "pilot_slot": 5,
+      "selected_class_position": "preferred",
+      "selected_class_uri": "http://dbpedia.org/resource/Category:Group_IV_semiconductors",
+      "selected_mapped_candidate_count": 11
+    },
+    {
+      "answer_uri": "http://dbpedia.org/resource/Sulfuric_acid",
+      "attempts": [
+        {
+          "class_position": "preferred",
+          "class_uri": "http://dbpedia.org/resource/Category:Mineral_acids",
+          "mapped_candidate_count_excluding_answer": 6,
+          "passes_mapping_gate": false,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_1",
+          "class_uri": "http://dbpedia.org/resource/Category:Sulfur_oxoacids",
+          "mapped_candidate_count_excluding_answer": 1,
+          "passes_mapping_gate": false,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_2",
+          "class_uri": "http://dbpedia.org/resource/Category:Oxidizing_acids",
+          "mapped_candidate_count_excluding_answer": 4,
+          "passes_mapping_gate": false,
+          "retrieval_complete": true
+        }
+      ],
+      "display_label": "Sulfuric acid",
+      "mapping_gate_threshold": 10,
+      "mapping_stage_status": "NO_MAPPING_FEASIBLE_APPROVED_CLASS",
+      "note": "passes_mapping_gate is a NECESSARY MAPPING condition only; it is not graph-budget feasibility and does not imply that these candidates fit under DEFAULT_MAX_NODES",
+      "pilot_slot": 6,
+      "selected_class_position": null,
+      "selected_class_uri": null,
+      "selected_mapped_candidate_count": null
+    },
+    {
+      "answer_uri": "http://dbpedia.org/resource/Aristotle",
+      "attempts": [
+        {
+          "class_position": "preferred",
+          "class_uri": "http://dbpedia.org/resource/Category:Ancient_Greek_ethicists",
+          "mapped_candidate_count_excluding_answer": 27,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_1",
+          "class_uri": "http://dbpedia.org/resource/Category:Peripatetic_philosophers",
+          "mapped_candidate_count_excluding_answer": 6,
+          "passes_mapping_gate": false,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_2",
+          "class_uri": "http://dbpedia.org/resource/Category:Ancient_Greek_philosophers_of_mind",
+          "mapped_candidate_count_excluding_answer": 12,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        }
+      ],
+      "display_label": "Aristotle",
+      "mapping_gate_threshold": 10,
+      "mapping_stage_status": "MAPPING_SELECTED_PREFERRED",
+      "note": "passes_mapping_gate is a NECESSARY MAPPING condition only; it is not graph-budget feasibility and does not imply that these candidates fit under DEFAULT_MAX_NODES",
+      "pilot_slot": 7,
+      "selected_class_position": "preferred",
+      "selected_class_uri": "http://dbpedia.org/resource/Category:Ancient_Greek_ethicists",
+      "selected_mapped_candidate_count": 27
+    },
+    {
+      "answer_uri": "http://dbpedia.org/resource/Plato",
+      "attempts": [
+        {
+          "class_position": "preferred",
+          "class_uri": "http://dbpedia.org/resource/Category:Ancient_Greek_ethicists",
+          "mapped_candidate_count_excluding_answer": 27,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_1",
+          "class_uri": "http://dbpedia.org/resource/Category:Ancient_Athenian_philosophers",
+          "mapped_candidate_count_excluding_answer": 6,
+          "passes_mapping_gate": false,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_2",
+          "class_uri": "http://dbpedia.org/resource/Category:4th-century_BC_Greek_philosophers",
+          "mapped_candidate_count_excluding_answer": 44,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        }
+      ],
+      "display_label": "Plato",
+      "mapping_gate_threshold": 10,
+      "mapping_stage_status": "MAPPING_SELECTED_PREFERRED",
+      "note": "passes_mapping_gate is a NECESSARY MAPPING condition only; it is not graph-budget feasibility and does not imply that these candidates fit under DEFAULT_MAX_NODES",
+      "pilot_slot": 8,
+      "selected_class_position": "preferred",
+      "selected_class_uri": "http://dbpedia.org/resource/Category:Ancient_Greek_ethicists",
+      "selected_mapped_candidate_count": 27
+    },
+    {
+      "answer_uri": "http://dbpedia.org/resource/Adam_Smith",
+      "attempts": [
+        {
+          "class_position": "preferred",
+          "class_uri": "http://dbpedia.org/resource/Category:Classical_economists",
+          "mapped_candidate_count_excluding_answer": 18,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_1",
+          "class_uri": "http://dbpedia.org/resource/Category:Scottish_economists",
+          "mapped_candidate_count_excluding_answer": 46,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        },
+        {
+          "class_position": "fallback_2",
+          "class_uri": "http://dbpedia.org/resource/Category:Philosophers_of_economics",
+          "mapped_candidate_count_excluding_answer": 56,
+          "passes_mapping_gate": true,
+          "retrieval_complete": true
+        }
+      ],
+      "display_label": "Adam Smith",
+      "mapping_gate_threshold": 10,
+      "mapping_stage_status": "MAPPING_SELECTED_PREFERRED",
+      "note": "passes_mapping_gate is a NECESSARY MAPPING condition only; it is not graph-budget feasibility and does not imply that these candidates fit under DEFAULT_MAX_NODES",
+      "pilot_slot": 9,
+      "selected_class_position": "preferred",
+      "selected_class_uri": "http://dbpedia.org/resource/Category:Classical_economists",
+      "selected_mapped_candidate_count": 18
+    }
+  ],
+  "mode": "live",
+  "network": {
+    "cache_hits": 0,
+    "http_calls": 32,
+    "strict_offline": false,
+    "transport_present": true
+  },
+  "no_mapping_feasible_approved_class": [
+    "http://dbpedia.org/resource/Sulfuric_acid"
+  ],
+  "parameters": {
+    "mapping_gate_threshold": 10,
+    "max_http_attempts_per_page": 5,
+    "max_nodes_for_profiling": 1200,
+    "max_pages_per_class": 25,
+    "max_redirect_hops": 3,
+    "membership_relation": "?member dcterms:subject <CLASS_URI>",
+    "owl_sameAs_used": false,
+    "page_size": 1000,
+    "redirect_batch_size": 50,
+    "redirect_relation": "dbo:wikiPageRedirects"
+  },
+  "python_version": "3.11.15",
+  "retrieval_completeness": {
+    "all_classes_complete": true,
+    "incomplete_classes": []
+  },
+  "retrieval_finished_at_iso_utc": "2026-07-30T01:00:36.660550+00:00",
+  "retrieval_started_at_iso_utc": "2026-07-30T00:59:06.272327+00:00",
+  "retrieval_timezone": "UTC (+00:00, explicit offset in every ISO field)",
+  "schema_version": "pilot_class_member_mapping_v1",
+  "source_code_commit_at_run": "7e0cca0e01b86164d6ba9d65794339d5f23e74fb",
+  "source_file_sha256": {
+    "pytest.ini": "4973d5db34c384a2e6c22f2fe9595317782ef163fab68943913c87addc8cf806",
+    "src/classes/local_candidate_profile.py": "4e92506ef2bb7fddfa5366dcf6fd97794043d8de622f39fb7ca3472da8410684",
+    "src/classes/mapping_run.py": "5ba7068297b4f787d962823b850fd7ec8b8fbafd9b41b7f853615e15bbaa4cae",
+    "src/classes/member_mapper.py": "48aa0831cd7847ab24d6c282e9f879e0cafae31b130b630fb8c328abe71ca681",
+    "src/classes/page_cache.py": "43b26415941b9ef970ebaa8c7722ab973bb83b4bdb74c88e33a7a513182a9564",
+    "src/classes/policy.py": "8b90c6c345ac0f4380193f6e0ed6be584a79a41cd6434af53439d1d9f82738ef",
+    "src/classes/sparql_client.py": "3fb9a1168ff9fe24f646642ce9c22a025ee61712c557e079ca61bda4ce636421",
+    "src/kg/graph_view.py": "0ed2733307ef8116b4ba79c906e8e880711e06f011418b0da3104e4c99716ec4",
+    "src/kg/loader.py": "21a28be02ef2745271e01ebf0a3f10bba62949f32d6f4fc8a0d39d342600f565"
+  },
+  "stage": "approved class -> members -> redirects -> local mapping -> local candidate profiling",
+  "task": "journal2_week1_local_mapping",
+  "verdict": "LOCAL_CLASS_MAPPING_COMPLETE_READY_FOR_GRAPH_POLICY",
+  "wall_clock_seconds": 90.388
+}
