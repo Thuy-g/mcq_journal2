@@ -25,6 +25,17 @@
 #                              which is network- and model-bearing and is imported
 #                              only inside that mode.
 #
+#   and, since Prompt 8E, one further stage of the proposed path:
+#
+#     pilot-rationale-selection  PROPOSED. Consumes the frozen Prompt-8D handoff,
+#                              computes the exact minimum-cardinality rationale set
+#                              cover and selects distractors. Delegates entirely to
+#                              pipeline.rationale_selection_run: this entrypoint
+#                              owns NO set-cover and NO distractor-combination
+#                              mathematics, which live in src/rationale/ (audit
+#                              §9.2). Adding them here is what made the legacy file
+#                              a 1,000-line module that no reviewer could bound.
+#
 #   Graph construction, the admission order and the LRoleSim kernel are NOT here.
 #   They live in src/kg/graph_view.py, src/pipeline/candidate_order.py,
 #   src/lrolesim/adapter.py and src/MCQ_lrolesim_ClaudeWeb_v2.py, all frozen.
@@ -117,6 +128,11 @@ FROZEN_PROMPT8C_ZIP_SHA256 = (
 DEFAULT_OUTPUT_DIR = (
     REPO_ROOT / "outputs" / "journal2_week2_extract_integration_2026-07-30"
 )
+# The frozen Prompt-8D handoff that pilot-rationale-selection consumes. Named
+# here only so `--prompt8d-dir` has a default without importing the rationale
+# layer at argument-parsing time; the mode itself reads the same constant from
+# pipeline.rationale_selection_run, and a test asserts the two agree.
+DEFAULT_PROMPT8D_DIR = DEFAULT_OUTPUT_DIR
 
 # Frozen Prompt-8B/8C sources. Prompt 8D must not change any of them, so their
 # hashes are checked at run time and published, not merely promised.
@@ -140,11 +156,16 @@ PROTECTED_SOURCES = {
 
 # --- Modes ------------------------------------------------------------------
 MODE_PILOT_LROLESIM_HANDOFF = "pilot-lrolesim-handoff"
+MODE_PILOT_RATIONALE_SELECTION = "pilot-rationale-selection"
 MODE_LEGACY_OVERLAP = "legacy-overlap"
-MODES = (MODE_PILOT_LROLESIM_HANDOFF, MODE_LEGACY_OVERLAP)
+MODES = (MODE_PILOT_LROLESIM_HANDOFF, MODE_PILOT_RATIONALE_SELECTION,
+         MODE_LEGACY_OVERLAP)
 
 RANKER_FOR_MODE = {
     MODE_PILOT_LROLESIM_HANDOFF: RANKER_LROLESIM_M1_FIXED_K3,
+    # Prompt 8E consumes the same frozen ranking; the ranker does not change when
+    # rationale feasibility is applied to its output.
+    MODE_PILOT_RATIONALE_SELECTION: RANKER_LROLESIM_M1_FIXED_K3,
     MODE_LEGACY_OVERLAP: RANKER_LEGACY_OVERLAP_BASELINE,
 }
 
@@ -948,12 +969,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=MODES, required=True,
                         help=(f"{MODE_PILOT_LROLESIM_HANDOFF}: proposed path, "
                               f"offline, consumes the verified Prompt-8C LRoleSim "
-                              f"rankings. {MODE_LEGACY_OVERLAP}: retained "
-                              f"baseline, requires the network."))
+                              f"rankings. {MODE_PILOT_RATIONALE_SELECTION}: "
+                              f"proposed path, offline, exact rationale set cover "
+                              f"and distractor selection over the frozen "
+                              f"Prompt-8D handoff. {MODE_LEGACY_OVERLAP}: "
+                              f"retained baseline, requires the network."))
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--prompt8c-dir", default=str(FROZEN_PROMPT8C_DIR))
     parser.add_argument("--local-kg", default=str(PINNED_LOCAL_KG))
     parser.add_argument("--quiet", action="store_true")
+    # pilot-rationale-selection only. Defaults are resolved lazily against
+    # pipeline.rationale_selection_run so that parsing arguments never imports the
+    # rationale layer, and so that the two files cannot drift on what "the primary
+    # configuration" means.
+    parser.add_argument("--prompt8d-dir", default=str(DEFAULT_PROMPT8D_DIR))
+    parser.add_argument("--rho", type=int, default=3,
+                        help=("pilot-rationale-selection: the largest rationale "
+                              "that may be presented. A PRESENTATION budget, not "
+                              "a correctness parameter."))
     # legacy-overlap only
     parser.add_argument("--pickle", default="infobox.pickle_EnglishVersion_EntityType")
     parser.add_argument("--answers", help="legacy-overlap: file of Answer URIs")
@@ -985,6 +1018,38 @@ def dispatch(mode: str, args: argparse.Namespace,
         print(f"       network attempts: "
               f"{run.guard_record['network_attempts']} (http 0, sparql 0)")
         print(f"       rationale selection: {RATIONALE_SELECTION_DEFERRED}")
+        return 0
+
+    if mode == MODE_PILOT_RATIONALE_SELECTION:
+        # Delegated in full. This entrypoint owns no set-cover mathematics, no
+        # distractor-combination search and no evidence policy; it resolves the
+        # mode and hands over. Imported inside the branch so that neither of the
+        # other two modes pays for, or is coupled to, the rationale layer.
+        from pipeline import rationale_selection_run   # local: mode-scoped
+
+        run = rationale_selection_run.run_rationale_selection(
+            prompt8d_dir=args.prompt8d_dir,
+            k=args.k,
+            rho=args.rho,
+            verbose=not args.quiet,
+        )
+        out_dir = rationale_selection_run.write_all_outputs(
+            run, args.output_dir, raw_command)
+        counts = run.counts()
+        print(f"\n[done] mode={run.mode}  ranker={run.ranker_name}  "
+              f"k={run.k} rho={run.rho}")
+        print(f"       outputs -> {out_dir}")
+        print(f"       primary Answers: {counts['primary_answer_denominator']} "
+              f"({counts['primary_ready_for_rationale_selection']} ready)")
+        print(f"       positive-observed full coverage: "
+              f"{counts['algorithm_selected_positive_observed']}")
+        print(f"       snapshot-observed full coverage only: "
+              f"{counts['algorithm_selected_snapshot_observed_only']}")
+        print(f"       no full coverage: {counts['no_full_coverage_total']}")
+        print(f"       network attempts: "
+              f"{run.guard_record['network_attempts']} (http 0, sparql 0)")
+        print("       every selected MCQ: requires_human_validation=true, "
+              "human_validation_status=NOT_CHECKED, publishable_final=false")
         return 0
 
     if mode == MODE_LEGACY_OVERLAP:
