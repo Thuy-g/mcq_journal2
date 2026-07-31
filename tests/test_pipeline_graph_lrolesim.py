@@ -73,8 +73,19 @@ PROTECTED_SOURCE_SHA256 = {
         "48aa0831cd7847ab24d6c282e9f879e0cafae31b130b630fb8c328abe71ca681",
     "src/classes/local_candidate_profile.py":
         "4e92506ef2bb7fddfa5366dcf6fd97794043d8de622f39fb7ca3472da8410684",
-    "src/extract_221_and_select_distractors_ClaudeWeb_v2.py":
-        "d09cb686e162b115b69b898dda95d260c5bc14e93ea52ffe3c71e6140513e983",
+    # RETIRED BY PROMPT 8D — src/extract_221_and_select_distractors_ClaudeWeb_v2.py
+    #   Prompt 8C was forbidden to touch the extract file, so it was pinned here at
+    #   d09cb686e162b115b69b898dda95d260c5bc14e93ea52ffe3c71e6140513e983.
+    #   Prompt 8D's mandate is to PATCH that exact file into a mode-dispatching
+    #   compatibility entrypoint, so the pin no longer describes a rule that holds.
+    #   It is removed rather than re-pinned at the new digest: re-pinning would
+    #   assert "this file must never change again", which is not true of an
+    #   orchestration wrapper, and would fail on every later legitimate edit for a
+    #   reason unrelated to Prompt 8C's guarantees.
+    #   The pre-Prompt-8D digest above remains the recorded baseline, and Prompt
+    #   8D's own suite (tests/test_selection_lrolesim_handoff.py) pins the five
+    #   sources that DO stay frozen: candidate_order, graph_lrolesim_run,
+    #   graph_view, the LRoleSim adapter and the LRoleSim kernel.
 }
 
 ANSWER = "http://dbpedia.org/resource/Shinya_Yamanaka"
