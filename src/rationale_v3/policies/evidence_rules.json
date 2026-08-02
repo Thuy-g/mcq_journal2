@@ -1,0 +1,62 @@
+{
+  "version": "evidence_rules/1.0.0",
+  "notes": {
+    "l0": "L0 needs no rule. It is the default outcome when the Answer supports a proposition, the pinned snapshot records no equivalent support for the candidate, and neither an active scoped rule nor a proof applies. L0 is an observation about one snapshot under the Open World Assumption.",
+    "l1": "L1 requires an ACTIVE rule with a declared scope. A different observed object alone is never L1.",
+    "l2": "L2 requires a machine-checkable proof carrying premises, a conclusion and an ontology or schema source. The l2_rules list below is EMPTY for the Journal-2 pilot: DBpedia infobox properties (the dbp: namespace) carry no functional, maximum-cardinality, disjointness or negative-assertion declarations, and none is available offline. Declaring one here would fabricate exclusion evidence. Zero L2 cases in the pilot is therefore the correct reported outcome, not a gap to be filled.",
+    "temporal_l2": "Temporal L2 additionally requires real statement-level qualifiers. DBpedia infobox facts have none, so qualifier_status is UNAVAILABLE_IN_SOURCE and temporal L2 is unreachable on this source by construction.",
+    "okuhara_inference_templates": "Okuhara 2025 uses P(x,y) AND P(y,z) -> P(x,z) and P(x,y) AND capital(z,y) -> P(x,z) to add panoramic bypass links. Those are link-creation heuristics, not negative-evidence rules and not statement qualifiers, and they are deliberately NOT used as L2 exclusion rules here."
+  },
+
+  "empirical_single_valued_derivation": {
+    "enabled": true,
+    "rule_type": "EMPIRICALLY_SINGLE_VALUED_IN_SCOPE",
+    "scope_kind": "SELECTED_LOCAL_CLASS_CANDIDATE_POOL",
+    "scope_note": "The scope is the Answer plus the complete ranked candidate pool of the Prompt-8C selected class, as serialized by Prompt 8D. It is a LOCAL, EMPIRICAL scope: the rule says nothing about the predicate outside this class and nothing about DBpedia as a whole.",
+    "minimum_support": 5,
+    "minimum_support_note": "Support is the number of distinct entities in the scope observed with at least one object for the key. Five is the declared default; the run sweeps 3, 5, 8 and 10 and publishes the sensitivity in empirical_rule_candidates_v3.csv, so the threshold is auditable rather than silent.",
+    "support_ablation_values": [3, 5, 8, 10],
+    "maximum_observed_canonical_cardinality": 1,
+    "maximum_violations": 0,
+    "violation_note": "A violation is an entity in scope observed with two or more CANONICALLY DISTINCT objects for the key. Canonical equivalence is applied first, so a redirect pair does not count as two values.",
+    "active_directions": ["OUT"],
+    "inactive_direction_reason": {
+      "IN": "IN_DIRECTION_EMPIRICAL_CARDINALITY_NOT_TRUSTED"
+    },
+    "inactive_direction_note": "For an IN key the observed cardinality is an IN-DEGREE: how many other articles in the local pool happen to point at the entity with that predicate. A maximum in-degree of one across a handful of entities reflects how thinly the snapshot covers those articles, not a property of the predicate. IN-direction candidates are therefore derived and published as PROPOSED_NOT_ACTIVE so the ablation can show exactly what they would change.",
+    "empirical_label": "EMPIRICAL_AND_SCOPED_NOT_UNIVERSAL"
+  },
+
+  "l1_rules": [],
+  "l1_rules_note": "Curated L1 rules would be listed here. The pilot declares none: every L1 rule it uses is DERIVED at run time by empirical_single_valued_derivation above, from the frozen Prompt-8D observations, and is published with its support, maximum observed cardinality, violation count and activation status in empirical_rule_candidates_v3.csv.",
+
+  "l2_rules": [],
+
+  "l2_rule_schema": {
+    "required_fields": [
+      "rule_id",
+      "rule_type",
+      "predicate_uri",
+      "direction",
+      "scope",
+      "ontology_source",
+      "provenance",
+      "version",
+      "activation_status"
+    ],
+    "functional_conflict_requirements": [
+      "a trusted functional or maximum-cardinality declaration from ontology_source",
+      "an observed alternative object on the candidate",
+      "canonical inequality between the Answer object and the candidate object",
+      "no equivalence and no parent-child support relation between them"
+    ],
+    "temporal_conflict_requirements": [
+      "actual statement-level qualifiers on both statements",
+      "a compatible normalized time representation",
+      "an overlapping comparison interval",
+      "an active exclusivity rule",
+      "every premise present"
+    ],
+    "non_functional_predicates_note": "birthPlace, almaMater, knownFor, influenced, author, products and similar predicates are NOT treated as functional merely because one value happens to be observed for one entity."
+  }
+}

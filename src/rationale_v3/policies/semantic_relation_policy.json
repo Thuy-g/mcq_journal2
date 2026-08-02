@@ -1,0 +1,106 @@
+{
+  "version": "semantic_relation_policy/1.0.0",
+  "max_depth": 4,
+  "notes": {
+    "scope": "Bounded, allowlisted, cycle-safe parent-child closure over the pinned local KG. Not a reasoner. Never inferred from URI strings.",
+    "direction_of_effect": "Parent-child relatedness removes or downgrades apparent contrast. It never creates exclusion evidence.",
+    "why_the_allowlist_is_short": "DBpedia infobox predicates are polysemous across templates. Only administrative-containment slots are admitted, because those carry the same meaning on every template that uses them. Every rejected predicate is listed under excluded_predicates with its reason.",
+    "max_depth_rationale": "Four hops reach ward -> city -> prefecture/state -> country, which is the deepest administrative chain the pilot's place objects need. A deeper walk would start joining unrelated administrative trees through shared national parents.",
+    "coverage_claim": "This closure is incomplete by construction. An UNRELATED_OR_UNKNOWN result is a statement about the traversed edges, not about the world."
+  },
+  "traversal_rules": [
+    {
+      "rule_id": "PLACE_CONTAINMENT_COUNTRY_V1",
+      "predicate_uri": "http://dbpedia.org/property/country",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:country Y - the sovereign state the settlement or administrative area X lies in."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_SUBDIVISION_NAME_V1",
+      "predicate_uri": "http://dbpedia.org/property/subdivisionName",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:subdivisionName Y - an administrative division containing X, as listed by the settlement infobox."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_STATE_V1",
+      "predicate_uri": "http://dbpedia.org/property/state",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:state Y - the state or prefecture containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_PROVINCE_V1",
+      "predicate_uri": "http://dbpedia.org/property/province",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:province Y - the province containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_COUNTY_V1",
+      "predicate_uri": "http://dbpedia.org/property/county",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:county Y - the county containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_CITY_V1",
+      "predicate_uri": "http://dbpedia.org/property/city",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:city Y - the city containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_MUNICIPALITY_V1",
+      "predicate_uri": "http://dbpedia.org/property/municipality",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:municipality Y - the municipality containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_DISTRICT_V1",
+      "predicate_uri": "http://dbpedia.org/property/district",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:district Y - the district containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_NATION_V1",
+      "predicate_uri": "http://dbpedia.org/property/nation",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:nation Y - the nation containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_IS_PART_OF_V1",
+      "predicate_uri": "http://dbpedia.org/property/isPartOf",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:isPartOf Y - the administrative or geographic whole X belongs to."
+    }
+  ],
+  "excluded_predicates": {
+    "http://dbpedia.org/property/region": "Polysemous across templates: the containing region on a settlement page, and the philosophical tradition (for example Western philosophy) on a philosopher page. Traversing it would mix geographic containment with intellectual tradition under one relation name.",
+    "http://dbpedia.org/property/location": "Used both for containment and for a loosely associated place (venue, headquarters, event site). Not reliably a containment edge.",
+    "http://dbpedia.org/property/place": "Free-form place slot with no consistent containment semantics across templates.",
+    "http://dbpedia.org/property/type": "Used for taxonomic type, product type, settlement type and infobox variant. Not a single hierarchy.",
+    "http://dbpedia.org/property/class": "Used for ship class, taxonomic class, vehicle class and school class. Not a single hierarchy.",
+    "http://dbpedia.org/property/category": "Editorial grouping, not a subsumption relation.",
+    "http://dbpedia.org/property/parent": "Used for parent company, parent taxon and biological parent. Not a single hierarchy.",
+    "http://dbpedia.org/property/owner": "Ownership is not containment and not subsumption.",
+    "http://dbpedia.org/property/family": "Used for taxonomic family, product family and human family. Not a single hierarchy.",
+    "http://dbpedia.org/property/order": "Used for taxonomic order, chronological order and award order. Not a single hierarchy.",
+    "http://dbpedia.org/property/settlementType": "Names the KIND of settlement, not the settlement containing it."
+  },
+  "equivalence_source": "data/pilot_class_members_v1.jsonl record_type=redirect rows with a resolved target_uri, frozen during the Prompt-8B class-member retrieval. Read offline from the local file; no live lookup.",
+  "equivalence_pairs": [
+    ["http://dbpedia.org/resource/Antisthenes_(Heraclitean)", "http://dbpedia.org/resource/Heraclitus"],
+    ["http://dbpedia.org/resource/Iodous_acid", "http://dbpedia.org/resource/Iodite"],
+    ["http://dbpedia.org/resource/K-selectride", "http://dbpedia.org/resource/L-selectride"],
+    ["http://dbpedia.org/resource/Nihon_Hidankyo", "http://dbpedia.org/resource/Japan_Confederation_of_A-_and_H-Bomb_Sufferers_Organizations"],
+    ["http://dbpedia.org/resource/Uranium(III)_hydride", "http://dbpedia.org/resource/Uranium_hydride"]
+  ],
+  "disjointness_source": "No trustworthy disjointness axioms are available offline for DBpedia infobox properties. The list below is empty on purpose: a disjointness assertion invented here would become an L2 exclusion proof, which is exactly the fabrication this policy exists to prevent.",
+  "disjoint_pairs": []
+}
