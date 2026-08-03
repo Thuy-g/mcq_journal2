@@ -2,46 +2,29 @@
 # src/rationale_v3/setcover.py
 #
 # EXACT minimum-cardinality rationale set cover, plus complete enumeration of
-# the equally-smallest rationales so that §10 can rank among them.
+# the equally-smallest rationales so selector.py can rank among them.
 #
-# WHAT IS CARRIED OVER FROM PROMPT 8E, DELIBERATELY UNCHANGED
-#   The dynamic program. Prompt 8E replaced the legacy |R| = 1 special case
-#   (AUDIT item EX-3: select_distractor_set() lines 450-455 discarded valid
-#   two-fact rationales and depressed yield for a reason that was a property of
-#   the code, not of DBpedia) with an exact O(m · 2^k) bitmask DP. That solver is
-#   correct and is not re-derived here. `exact_minimum_rationale` below is the
-#   same program with one field renamed — 8E's `absence_incidences` becomes a
-#   general `tie_weight` — so that with V3's semantic, evidence, blacklist and
-#   quality features switched off it returns the identical result. A test asserts
-#   that against `rationale.setcover` directly.
+# UNCHANGED BY R1
+#   The dynamic program is the Prompt-8E/8F solver: an exact O(m * 2^k) bitmask
+#   DP that replaced the legacy |R| = 1 special case (AUDIT item EX-3, which
+#   discarded valid two-fact rationales). 8E's `absence_incidences` is the
+#   general `tie_weight` here, so with the extra features off this module and
+#   `rationale.setcover` agree fact for fact; a test asserts that directly.
 #
-# WHAT IS NEW
-#   Prompt 8E broke ties among equally small rationales with an additive weight
-#   and then canonical URI order. Prompt 8F §10 forbids URI order until every
-#   scientific and pedagogical key is exactly tied, and several of those keys —
-#   the rationale's minimum evidence level, redundancy across the set, local
-#   candidate-pool anonymity — are properties of the WHOLE SET and cannot be
-#   folded into a per-fact additive weight the DP could optimise.
-#
-#   So the DP answers only the question it can answer exactly and cheaply —
-#   WHAT IS THE MINIMUM CARDINALITY — and `enumerate_minimum_rationales` then
-#   produces every rationale of that cardinality for selector.py to rank.
+# WHY THE DP DOES NOT PICK THE RATIONALE
+#   Several ordering keys — the rationale's minimum evidence level, redundancy
+#   across the set, local candidate-pool anonymity — are properties of the WHOLE
+#   SET and cannot be folded into a per-fact additive weight. The DP answers
+#   only what it can answer exactly and cheaply, the minimum cardinality.
 #
 # WHY COMPLETE ENUMERATION IS AFFORDABLE
-#   A minimum-cardinality cover never contains two facts with the same coverage
-#   mask: dropping either leaves the coverage unchanged and the size smaller. So
-#   every minimum cover picks its facts from PAIRWISE DISTINCT mask classes, of
-#   which there are at most 2^k − 1 = 7 at k = 3. Enumeration is therefore a walk
-#   over at most C(7, s) class subsets, times the product of the class sizes.
-#   That product is bounded by `limit` and the result says whether the bound was
-#   reached, so a truncated enumeration can never be mistaken for a complete one.
+#   A minimum cover never contains two facts with the same coverage mask, so it
+#   picks from PAIRWISE DISTINCT mask classes, of which there are at most
+#   2^k - 1 = 7 at k = 3. The walk is bounded by `limit` and the result says
+#   whether the bound was reached.
 #
-# NO NEW ALGORITHM IS CLAIMED
-#   Set cover and bitmask dynamic programming over subsets are textbook
-#   (CLAUDE.md item 10). What this project contributes is the formulation around
-#   them, not the solver.
-#
-# OFFLINE AND PURE: integers, tuples and comparisons. No I/O.
+# Set cover and bitmask DP over subsets are textbook (CLAUDE.md item 10); the
+# contribution is the formulation around them. OFFLINE AND PURE, no I/O.
 ############################################################################
 
 from __future__ import annotations
@@ -68,9 +51,7 @@ from rationale_v3.contracts import (
 VERSION = "rationale_v3.setcover/1.0.0"
 
 
-# ==========================================================================
-# 1) WHAT SET COVER SEES OF A FACT
-# ==========================================================================
+# --- 1) WHAT SET COVER SEES OF A FACT ----------------------------------------
 
 @dataclass(frozen=True)
 class CoverageFact:
@@ -120,9 +101,7 @@ class CoverageFact:
         }
 
 
-# ==========================================================================
-# 2) THE RESULT
-# ==========================================================================
+# --- 2) THE RESULT -----------------------------------------------------------
 
 @dataclass(frozen=True)
 class RationaleCover:
@@ -182,9 +161,7 @@ class RationaleCover:
         }
 
 
-# ==========================================================================
-# 3) THE SIZE-ONLY DYNAMIC PROGRAM  (the enumeration hot path)
-# ==========================================================================
+# --- 3) THE SIZE-ONLY DYNAMIC PROGRAM  (the enumeration hot path) ------------
 
 def cover_size_table(masks: Iterable[int], k: int) -> list[int]:
     """Minimum number of facts reaching each of the 2^k coverage masks.
@@ -226,9 +203,7 @@ def minimum_cover_size(masks: Iterable[int], k: int) -> Optional[int]:
     return None if table[full] > k else table[full]
 
 
-# ==========================================================================
-# 4) THE FULL DYNAMIC PROGRAM
-# ==========================================================================
+# --- 4) THE FULL DYNAMIC PROGRAM ---------------------------------------------
 
 def exact_minimum_rationale(
     facts: Sequence[CoverageFact],
@@ -307,9 +282,7 @@ def exact_minimum_rationale(
     )
 
 
-# ==========================================================================
-# 5) COUNTING AND ENUMERATING THE EQUALLY SMALL RATIONALES
-# ==========================================================================
+# --- 5) COUNTING AND ENUMERATING THE EQUALLY SMALL RATIONALES ----------------
 
 def count_minimum_rationales(facts: Sequence[CoverageFact], *, k: int,
                              target_mask: int, size: int) -> int:
@@ -433,9 +406,7 @@ def enumerate_minimum_rationales(
     )
 
 
-# ==========================================================================
-# 6) THE BRUTE-FORCE REFERENCE
-# ==========================================================================
+# --- 6) THE BRUTE-FORCE REFERENCE --------------------------------------------
 
 def brute_force_minimum_rationale(
     facts: Sequence[CoverageFact],

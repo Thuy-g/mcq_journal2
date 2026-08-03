@@ -5,53 +5,46 @@
 # rankings, with a scalable exact / pool-exact combination search.
 #
 # THE THREE THINGS THIS MODULE DECIDES
-#
-#   1) WHICH EVIDENCE TIER an Answer lands in. strict-L2 first, then main-L1plus,
-#      then diagnostic-L0. The tier is chosen BEFORE the combination objective,
-#      so a structurally attractive triple can never pull an Answer down into a
-#      weaker evidence tier (Prompt 8F §11).
-#
-#   2) WHICH THREE CANDIDATES. Inside a tier: maximise the LRoleSim score sum,
-#      then the minimum LRoleSim score, then minimise the rationale cardinality,
-#      then take the better rationale evidence/quality key, then the smaller rank
-#      sum, and only then the canonical candidate-URI tuple. Every LRoleSim score
-#      is READ from the frozen Prompt-8D handoff; nothing here recomputes,
-#      rescales or re-ranks one (CLAUDE.md items 2 and 3).
-#
+#   1) WHICH EVIDENCE TIER an Answer lands in: strict-L2, then main-L1, then
+#      diagnostic-L0. The tier is chosen BEFORE the combination objective, so a
+#      structurally attractive triple can never pull an Answer into a weaker
+#      evidence tier.
+#   2) WHICH THREE CANDIDATES: maximise the LRoleSim score sum, then the minimum
+#      score, then minimise the rationale cardinality, then the rationale
+#      evidence/quality key, then the rank sum, and only then the canonical URI
+#      tuple. Every LRoleSim score is READ from the frozen Prompt-8D handoff;
+#      nothing here recomputes or re-ranks one (CLAUDE.md items 2 and 3).
 #   3) WHICH RATIONALE among the equally smallest. Prompt 8E broke that tie with
 #      an additive weight and then URI order, which is how a Web Archive URL and
-#      a counterpart containing the Answer's own name became selected rationales.
-#      §10 replaces it with a scientific-then-pedagogical order in which URI
-#      ordering is the LAST resort, reached only when every other key is exactly
-#      tied.
+#      a counterpart containing the Answer's own name were selected. URI order
+#      is now the LAST resort.
+#
+# WHAT R1 CHANGED HERE
+#   The middle policy is `main-l1` and covers a distractor with an L1 POSITIVE
+#   OBSERVED CONTRAST. Within L1 a SCOPED_EMPIRICAL annotation is preferred over
+#   NONE — after the evidence profile, never in place of it. Granularity risk
+#   (present or unresolved) no longer downgrades a level; it is counted, ordered
+#   against, and blocks main-corpus eligibility.
 #
 # WHY THE SEARCH IS AFFORDABLE
-#   Coverage of a candidate by a fact does not depend on which OTHER candidates
-#   are in the combination, so the evidence table is built once per Answer and
-#   each combination only asks which mask CLASSES its three candidates induce.
-#   Held as one integer per candidate with one bit per fact, that is a handful of
-#   bitwise operations, and the at most 2^k − 1 classes it produces feed the same
-#   dynamic program setcover.py exposes.
-#
-#   The expensive part — enumerating and ranking every minimum-cardinality
-#   rationale — runs only for the combinations that are still tied after the
-#   first three objective keys, never for all C(n, 3).
+#   Coverage of a candidate by a fact does not depend on the other candidates,
+#   so the evidence table is built once per Answer and each combination only
+#   asks which mask CLASSES its three candidates induce. Enumerating and ranking
+#   every minimum-cardinality rationale runs only for combinations still tied
+#   after the first three objective keys, never for all C(n, 3).
 #
 # WHERE THIS STOPS
-#   No class selection, no candidate retrieval, no mapping, no graph
-#   construction, no LRoleSim run — for the selected class or for a fallback one.
-#   An Answer with no eligible full-coverage result emits a fallback REQUEST and
-#   nothing else (§14).
-#
-# OFFLINE AND PURE: integers, tuples and comparisons. No I/O, no network.
+#   No class selection, candidate retrieval, mapping, graph construction or
+#   LRoleSim run. An Answer with no eligible full-coverage result emits a
+#   fallback REQUEST. OFFLINE AND PURE: no I/O, no network.
 ############################################################################
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from itertools import combinations
 from math import comb
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from rationale_v3.contracts import (
     DEFAULT_K,
@@ -64,6 +57,8 @@ from rationale_v3.contracts import (
     FALLBACK_L0_ONLY,
     FALLBACK_NO_FULL_COVERAGE,
     FALLBACK_NO_QUALITY_ELIGIBLE,
+    FALLBACK_SEMANTIC_RISK,
+    GRANULARITY_RISK_NONE,
     LEVEL_L0,
     LEVEL_L1,
     LEVEL_L2,
@@ -83,8 +78,8 @@ from rationale_v3.contracts import (
     AnswerFact,
     RationaleProposition,
     RationaleV3ContractError,
-    covers_under_policy,
     level_at_least,
+    mcq_evidence_level,
     sort_answer_facts,
     validate_k,
     validate_policy,
@@ -96,31 +91,26 @@ from rationale_v3.evidence import (
     classify_fact_against_candidate,
 )
 from rationale_v3.quality import FactQuality, assess_fact_quality, fact_quality_key
-from rationale_v3.semantic_relations import SemanticIndex, normalize_uri
+from rationale_v3.semantic_relations import SemanticIndex
 from rationale_v3.setcover import (
     CoverageFact,
-    MinimumRationaleEnumeration,
     cover_size_table,
     enumerate_minimum_rationales,
     exact_minimum_rationale,
 )
 
-VERSION = "rationale_v3.selector/1.0.0"
+VERSION = "rationale_v3.selector/2.0.0-r1"
 
-#: How many ranked minimum rationales the audit file keeps per Answer. The exact
-#: count is published separately, so this bounds the artefact and not the search.
-AUDIT_TOP_RATIONALES = 25
-
-#: How many feasible combinations per policy the audit record keeps.
-AUDIT_TOP_COMBINATIONS = 20
+#: How many ranked minimum rationales an audit record keeps per Answer. The
+#: exact count is published separately, so this bounds the artefact, not the
+#: search.
+AUDIT_TOP_RATIONALES = 10
 
 #: Descending evidence levels a rationale's minimum level can take.
 _LEVELS_STRONGEST_FIRST = (LEVEL_L2, LEVEL_L1, LEVEL_L0)
 
 
-# ==========================================================================
-# 1) INPUT VIEWS
-# ==========================================================================
+# --- 1) INPUT VIEWS ----------------------------------------------------------
 
 @dataclass(frozen=True)
 class RankedCandidateView:
@@ -134,7 +124,7 @@ class RankedCandidateView:
 
 @dataclass(frozen=True)
 class AnswerInput:
-    """Everything the V3 search needs for ONE Answer, all frozen upstream."""
+    """Everything the search needs for ONE Answer, all frozen upstream."""
 
     answer_uri: str
     answer_local_index: int
@@ -175,17 +165,14 @@ class AnswerInput:
         return self.selected_class_uri
 
 
-# ==========================================================================
-# 2) THE EVIDENCE TABLE
-# ==========================================================================
+# --- 2) THE EVIDENCE TABLE ---------------------------------------------------
 
 @dataclass(frozen=True)
 class EvidenceTable:
     """Every Answer fact against every ranked candidate, levels and quality.
 
-    Built once per Answer and reused by the combination search, the pool
-    ablation and the diagnostics, so those three can never disagree about what
-    the snapshot says.
+    Built once per Answer and reused by the combination search and the
+    diagnostics, so the two can never disagree about what the snapshot says.
     """
 
     answer_uri: str
@@ -224,31 +211,33 @@ class EvidenceTable:
                 bits |= 1 << index
         return bits
 
-    def level_counts(self) -> dict[str, int]:
+    def level_counts(self, *, eligible_only: bool = False) -> dict[str, int]:
         counts = {LEVEL_NOT_COVERED: 0, LEVEL_L0: 0, LEVEL_L1: 0, LEVEL_L2: 0}
-        for row in self.evidence:
-            for item in row:
+        indices = (self.eligible_fact_indices if eligible_only
+                   else range(len(self.evidence)))
+        for index in indices:
+            for item in self.evidence[index]:
                 counts[item.level] += 1
         return counts
 
-    def eligible_level_counts(self) -> dict[str, int]:
-        counts = {LEVEL_NOT_COVERED: 0, LEVEL_L0: 0, LEVEL_L1: 0, LEVEL_L2: 0}
-        for index in self.eligible_fact_indices:
-            for item in self.evidence[index]:
-                counts[item.level] += 1
+    def exclusion_basis_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for row in self.evidence:
+            for item in row:
+                counts[item.exclusion_basis] = counts.get(
+                    item.exclusion_basis, 0) + 1
         return counts
 
     def local_anonymity(self, fact_indices: Sequence[int]) -> tuple[int, float, bool]:
         """|S_local(R)|, its ratio, and whether R identifies the Answer alone.
 
         S_local(R) is the set of entities in {Answer + the COMPLETE ranked
-        candidate pool} that support every proposition in R. An entity supports a
-        proposition exactly when the fact does not cover it — the two are the
-        same question asked from opposite sides — so this reuses the evidence
-        table rather than recomputing support.
+        candidate pool} that support every proposition in R. An entity supports
+        a proposition exactly when the fact does not cover it, so this reuses
+        the evidence table rather than recomputing support.
 
-        This is LOCAL. It says nothing about entities of the same class that are
-        absent from this pool, and it is named `local_candidate_pool_anonymity`
+        This is LOCAL. It says nothing about entities of the same class absent
+        from this pool, and it is named `local_candidate_pool_anonymity`
         everywhere it is written out.
         """
         pool_size = 1 + self.candidate_count          # the Answer is always in it
@@ -285,7 +274,7 @@ def build_evidence_table(
                 f"graph fingerprint {fact.graph_fingerprint!r}, expected "
                 f"{answer.graph_fingerprint!r}")
 
-    # O_d(κ) for every candidate, built once.
+    # O_d(kappa) for every candidate, built once.
     candidate_objects: dict[str, dict[tuple[str, str], list[str]]] = {}
     for candidate in answer.ranked_candidates:
         uri = candidate.canonical_candidate_uri
@@ -309,7 +298,7 @@ def build_evidence_table(
 
     evidence: list[tuple[FactCandidateEvidence, ...]] = []
     supporters: list[frozenset] = []
-    for index, proposition in enumerate(propositions):
+    for proposition in propositions:
         row: list[FactCandidateEvidence] = []
         supporting: set[int] = set()
         for position, candidate in enumerate(answer.ranked_candidates):
@@ -326,25 +315,17 @@ def build_evidence_table(
         evidence.append(tuple(row))
         supporters.append(frozenset(supporting))
 
-    eligible = tuple(index for index, q in enumerate(quality) if q.eligible)
-
     return EvidenceTable(
-        answer_uri=answer.answer_uri,
-        scope=answer.scope,
-        graph_fingerprint=answer.graph_fingerprint,
-        facts=facts,
-        propositions=propositions,
-        quality=quality,
-        candidates=answer.ranked_candidates,
-        evidence=tuple(evidence),
-        eligible_fact_indices=eligible,
-        supporter_sets=tuple(supporters),
-    )
+        answer_uri=answer.answer_uri, scope=answer.scope,
+        graph_fingerprint=answer.graph_fingerprint, facts=facts,
+        propositions=propositions, quality=quality,
+        candidates=answer.ranked_candidates, evidence=tuple(evidence),
+        eligible_fact_indices=tuple(index for index, q in enumerate(quality)
+                                    if q.eligible),
+        supporter_sets=tuple(supporters))
 
 
-# ==========================================================================
-# 3) RANKING AMONG EQUALLY MINIMUM-CARDINALITY RATIONALES  (§10)
-# ==========================================================================
+# --- 3) RANKING AMONG EQUALLY MINIMUM-CARDINALITY RATIONALES -----------------
 
 @dataclass(frozen=True)
 class RationaleChoice:
@@ -358,6 +339,7 @@ class RationaleChoice:
     l2_incidences: int
     l1_incidences: int
     l0_incidences: int
+    scoped_empirical_incidences: int
     granularity_risk_incidences: int
     soft_leak_fact_count: int
     pedagogical_tier_sum: int
@@ -370,28 +352,35 @@ class RationaleChoice:
     direct_identifier_flag: bool
     canonical_fact_tuple: tuple[tuple[str, str, str], ...]
 
-    def ranking_key(self) -> tuple:
-        """The §10 order, as one comparable tuple. SMALLEST WINS.
+    @property
+    def mcq_evidence_level(self) -> str:
+        return mcq_evidence_level(self.per_candidate_best_level)
 
-        The item numbers below are §10's. Item 1 (hard quality filters) is not
-        here because it is a FILTER: an ineligible fact never reaches this
-        function. Maximisation is expressed as negation, which is exact for
-        integers and for IEEE doubles, so no epsilon appears anywhere.
+    def ranking_key(self) -> tuple:
+        """The ordering, as one comparable tuple. SMALLEST WINS.
+
+        Hard quality filters are not here because they are FILTERS: an
+        ineligible fact never reaches this function. Maximisation is expressed
+        as negation, which is exact for integers and for IEEE doubles, so no
+        epsilon appears anywhere. `scoped_empirical_incidences` sits AFTER the
+        level profile: an annotation may order two equally strong rationales and
+        may never substitute for evidence.
         """
         return (
-            -LEVEL_ORDER[self.rationale_min_level],   # 2  maximise min level
-            -self.l2_incidences,                      # 3  evidence profile
+            -LEVEL_ORDER[self.rationale_min_level],   # maximise the MCQ level
+            -self.l2_incidences,                      # evidence profile
             -self.l1_incidences,
             self.l0_incidences,
-            self.granularity_risk_incidences,         # 4  semantic safety
-            self.soft_leak_fact_count,                # 5  leakage
-            self.pedagogical_tier_sum,                # 6  predicate/object quality
-            self.unverbalizable_count,                # 7  verbalizability
-            self.label_length_sum,                    # 8  textual complexity
+            -self.scoped_empirical_incidences,        # annotation, within L1
+            self.granularity_risk_incidences,         # semantic safety
+            self.soft_leak_fact_count,                # leakage
+            self.pedagogical_tier_sum,                # predicate/object quality
+            self.unverbalizable_count,                # verbalizability
+            self.label_length_sum,                    # textual complexity
             self.token_count_sum,
-            self.redundant_key_pairs,                 # 9  redundancy
-            1 if self.direct_identifier_flag else 0,  # 10 local pool anonymity
-            self.canonical_fact_tuple,                # 11 last resort only
+            self.redundant_key_pairs,                 # redundancy
+            1 if self.direct_identifier_flag else 0,  # local pool anonymity
+            self.canonical_fact_tuple,                # last resort only
         )
 
     def as_record(self) -> dict:
@@ -399,10 +388,12 @@ class RationaleChoice:
             "fact_indices": list(self.fact_indices),
             "minimum_rationale_size": self.size,
             "rationale_min_level": self.rationale_min_level,
+            "mcq_evidence_level": self.mcq_evidence_level,
             "per_candidate_best_level": list(self.per_candidate_best_level),
             "L2_coverage_incidence_count": self.l2_incidences,
             "L1_coverage_incidence_count": self.l1_incidences,
             "L0_coverage_incidence_count": self.l0_incidences,
+            "scoped_empirical_incidence_count": self.scoped_empirical_incidences,
             "semantic_granularity_risk_incidences":
                 self.granularity_risk_incidences,
             "soft_leakage_fact_count": self.soft_leak_fact_count,
@@ -441,6 +432,12 @@ class RationaleRanking:
     def best(self) -> Optional[RationaleChoice]:
         return self.ranked[0] if self.ranked else None
 
+    @property
+    def mcq_evidence_level(self) -> str:
+        best = self.best
+        return (best.mcq_evidence_level if best is not None
+                else mcq_evidence_level(()))
+
     def as_record(self) -> dict:
         return {
             "evidence_policy": self.evidence_policy,
@@ -452,6 +449,7 @@ class RationaleRanking:
             "minimum_rationale_count_enumerated": self.enumerated_count,
             "enumeration_scope": self.enumeration_scope,
             "rationale_min_level": self.achieved_min_level,
+            "mcq_evidence_level": self.mcq_evidence_level,
         }
 
 
@@ -460,7 +458,7 @@ def _coverage_facts(table: EvidenceTable, positions: Sequence[int],
     """CoverageFacts for one combination at one level threshold.
 
     `tie_weight` counts the L0 coverage incidences, which is the same number
-    Prompt 8E called `absence_incidences` whenever V3's extra features are off.
+    Prompt 8E called `absence_incidences` whenever the extra features are off.
     """
     facts: list[CoverageFact] = []
     for index in table.eligible_fact_indices:
@@ -475,11 +473,8 @@ def _coverage_facts(table: EvidenceTable, positions: Sequence[int],
                 weight += 1
         if mask:
             facts.append(CoverageFact(
-                fact_index=index,
-                canonical_key=table.facts[index].canonical_key,
-                coverage_mask=mask,
-                tie_weight=weight,
-            ))
+                fact_index=index, canonical_key=table.facts[index].canonical_key,
+                coverage_mask=mask, tie_weight=weight))
     return tuple(facts)
 
 
@@ -492,7 +487,8 @@ def rank_minimum_rationales(
     rho: int = DEFAULT_RHO,
     limit: int = DEFAULT_MAX_MINIMUM_RATIONALE_CANDIDATES,
 ) -> RationaleRanking:
-    """Exact minimum cardinality, then the §10 ranking among all of that size.
+    """Exact minimum cardinality, then the ranking among all rationales of that
+    size.
 
     Two exact steps, in this order:
 
@@ -503,8 +499,8 @@ def rank_minimum_rationales(
         cover reaching level t+1 would make the minimum size at t+1 equal to s,
         so no stronger t was missed.
 
-    Enumeration then walks exactly the size-s covers at level t, which is the
-    argmax set of §10 item 2, and the remaining keys order it.
+    Enumeration then walks exactly the size-s covers at level t, and the
+    remaining keys order them.
     """
     validate_k(k)
     validate_rho(rho)
@@ -525,70 +521,63 @@ def rank_minimum_rationales(
             if not level_at_least(level, threshold):
                 break
             facts = _coverage_facts(table, positions, level)
-            table_sizes = cover_size_table(
-                (f.coverage_mask for f in facts), k)
-            if table_sizes[full_mask] == size:
+            if cover_size_table((f.coverage_mask for f in facts), k)[full_mask] == size:
                 achieved_level = level
                 break
 
-    facts_at_level = _coverage_facts(table, positions, achieved_level)
     # Pre-sorted by the per-fact quality key so a bounded enumeration keeps the
     # facts most likely to win rather than an arbitrary prefix.
     ordered = tuple(sorted(
-        facts_at_level,
+        _coverage_facts(table, positions, achieved_level),
         key=lambda f: fact_quality_key(table.quality[f.fact_index])))
     enumeration = enumerate_minimum_rationales(
-        ordered, k=k, size=size,
-        target_mask=full_mask if full else target, limit=limit)
+        ordered, k=k, size=size, target_mask=full_mask if full else target,
+        limit=limit)
 
     ranked = tuple(sorted(
-        (_score_rationale(table, positions, choice, policy, k)
+        (_score_rationale(table, positions, choice, policy)
          for choice in enumeration.enumerated),
         key=lambda choice: choice.ranking_key()))
 
     return RationaleRanking(
-        evidence_policy=policy,
-        size=size,
-        full_coverage=full,
-        coverage_mask=target,
-        minimum_rationale_count=enumeration.total_count,
+        evidence_policy=policy, size=size, full_coverage=full,
+        coverage_mask=target, minimum_rationale_count=enumeration.total_count,
         enumerated_count=len(enumeration.enumerated),
         enumeration_scope=enumeration.scope,
         achieved_min_level=achieved_level if full else LEVEL_NOT_COVERED,
-        ranked=ranked,
-    )
+        ranked=ranked)
 
 
 def _score_rationale(table: EvidenceTable, positions: Sequence[int],
-                     facts: Sequence[CoverageFact], policy: str,
-                     k: int) -> RationaleChoice:
-    """Every §10 signal for one candidate rationale."""
+                     facts: Sequence[CoverageFact], policy: str) -> RationaleChoice:
+    """Every ordering signal for one candidate rationale."""
     threshold = POLICY_MINIMUM_LEVEL[policy]
     indices = tuple(f.fact_index for f in facts)
 
     per_candidate: list[str] = []
-    l2 = l1 = l0 = 0
-    granularity = 0
-    for bit, position in enumerate(positions):
+    l2 = l1 = l0 = scoped = granularity = 0
+    for position in positions:
         best = LEVEL_NOT_COVERED
         for index in indices:
-            level = table.level(index, position)
-            if LEVEL_ORDER[level] > LEVEL_ORDER[best]:
-                best = level
-            if not level_at_least(level, threshold):
+            item = table.evidence[index][position]
+            if LEVEL_ORDER[item.level] > LEVEL_ORDER[best]:
+                best = item.level
+            if not level_at_least(item.level, threshold):
                 continue
-            if level == LEVEL_L2:
+            if item.level == LEVEL_L2:
                 l2 += 1
-            elif level == LEVEL_L1:
+            elif item.level == LEVEL_L1:
                 l1 += 1
-            elif level == LEVEL_L0:
+            elif item.level == LEVEL_L0:
                 l0 += 1
-            if table.evidence[index][position].granularity_risk:
+            if item.scoped_empirical:
+                scoped += 1
+            if item.granularity_risk_status != GRANULARITY_RISK_NONE:
                 granularity += 1
         per_candidate.append(best)
 
-    rationale_min = min(per_candidate, key=lambda level: LEVEL_ORDER[level]) \
-        if per_candidate else LEVEL_NOT_COVERED
+    rationale_min = (min(per_candidate, key=lambda level: LEVEL_ORDER[level])
+                     if per_candidate else LEVEL_NOT_COVERED)
 
     quality = [table.quality[index] for index in indices]
     # Redundancy: two rationale facts on the SAME predicate and direction teach
@@ -596,35 +585,27 @@ def _score_rationale(table: EvidenceTable, positions: Sequence[int],
     keys = [(q.predicate_uri, q.direction) for q in quality]
     redundant = sum(1 for a, b in combinations(range(len(keys)), 2)
                     if keys[a] == keys[b])
-
     count, ratio, direct = table.local_anonymity(indices)
 
     return RationaleChoice(
         fact_indices=indices,
         coverage_masks=tuple(f.coverage_mask for f in facts),
-        size=len(facts),
-        rationale_min_level=rationale_min,
+        size=len(facts), rationale_min_level=rationale_min,
         per_candidate_best_level=tuple(per_candidate),
-        l2_incidences=l2,
-        l1_incidences=l1,
-        l0_incidences=l0,
+        l2_incidences=l2, l1_incidences=l1, l0_incidences=l0,
+        scoped_empirical_incidences=scoped,
         granularity_risk_incidences=granularity,
         soft_leak_fact_count=sum(1 for q in quality if q.leakage.soft_leak),
         pedagogical_tier_sum=sum(q.pedagogical_tier for q in quality),
         unverbalizable_count=sum(1 for q in quality if not q.verbalizable),
         label_length_sum=sum(q.label_length for q in quality),
         token_count_sum=sum(q.token_count for q in quality),
-        redundant_key_pairs=redundant,
-        local_anonymity_count=count,
-        local_anonymity_ratio=ratio,
-        direct_identifier_flag=direct,
-        canonical_fact_tuple=tuple(sorted(f.canonical_key for f in facts)),
-    )
+        redundant_key_pairs=redundant, local_anonymity_count=count,
+        local_anonymity_ratio=ratio, direct_identifier_flag=direct,
+        canonical_fact_tuple=tuple(sorted(f.canonical_key for f in facts)))
 
 
-# ==========================================================================
-# 4) THE CANDIDATE POOL  (§12)
-# ==========================================================================
+# --- 4) THE CANDIDATE POOL ---------------------------------------------------
 
 @dataclass(frozen=True)
 class PoolPolicy:
@@ -647,11 +628,7 @@ class PoolPolicy:
     def for_pool_size(cls, size: int, *,
                       max_exact_combinations: int = DEFAULT_MAX_EXACT_COMBINATIONS
                       ) -> "PoolPolicy":
-        """The default 3:1 score-to-rescue split, scaled to `size`.
-
-        Used by the ablation so that M = 25, 50, 75 and 100 all exercise the same
-        policy SHAPE and differ only in how much of the ranking they see.
-        """
+        """The default 3:1 score-to-rescue split, scaled to `size`."""
         top = (size * 3 + 3) // 4
         return cls(max_exact_combinations=max_exact_combinations,
                    top_by_score=top, evidence_rescue=size - top,
@@ -675,10 +652,8 @@ def candidate_rescue_key(table: EvidenceTable, position: int) -> tuple:
     enumeration the pool exists to avoid.
     """
     best = LEVEL_NOT_COVERED
-    l2 = l1 = 0
+    l2 = l1 = soft = granularity = 0
     best_tier = 99
-    soft = 0
-    granularity = 0
     for index in table.eligible_fact_indices:
         item = table.evidence[index][position]
         if LEVEL_ORDER[item.level] > LEVEL_ORDER[best]:
@@ -691,7 +666,7 @@ def candidate_rescue_key(table: EvidenceTable, position: int) -> tuple:
             best_tier = min(best_tier, table.quality[index].pedagogical_tier)
         if table.quality[index].leakage.soft_leak:
             soft += 1
-        if item.granularity_risk:
+        if item.granularity_risk_status != GRANULARITY_RISK_NONE:
             granularity += 1
     return (-LEVEL_ORDER[best], -l2, -l1, best_tier, soft, granularity,
             table.candidates[position].rank)
@@ -735,11 +710,11 @@ class CandidatePool:
 def build_candidate_pool(table: EvidenceTable, *, k: int = DEFAULT_K,
                          policy: PoolPolicy = PoolPolicy(),
                          force_pool: bool = False) -> CandidatePool:
-    """FULL_EXACT below the combination bound, POOL_EXACT above it (§12).
+    """FULL_EXACT below the combination bound, POOL_EXACT above it.
 
     The pool is the top `top_by_score` candidates by frozen LRoleSim rank, plus
-    up to `evidence_rescue` candidates that the rank order would have dropped but
-    that carry the strongest available evidence. Without the rescue slots a
+    up to `evidence_rescue` candidates that the rank order would have dropped
+    but that carry the strongest available evidence. Without the rescue slots a
     bounded search would systematically lose the low-ranked candidates that are
     the only ones a strong rationale can discriminate.
     """
@@ -749,41 +724,31 @@ def build_candidate_pool(table: EvidenceTable, *, k: int = DEFAULT_K,
 
     if not force_pool and original <= policy.max_exact_combinations:
         return CandidatePool(
-            scope=SEARCH_FULL_EXACT,
-            positions=tuple(range(n)),
-            original_candidate_count=n,
-            original_combination_count=original,
-            enumerated_combination_count=original,
-            policy=policy,
-            rescued_positions=(),
-        )
+            scope=SEARCH_FULL_EXACT, positions=tuple(range(n)),
+            original_candidate_count=n, original_combination_count=original,
+            enumerated_combination_count=original, policy=policy,
+            rescued_positions=())
 
     # Positions are rank order, so the first `top_by_score` ARE the top by score.
     top = tuple(range(min(policy.top_by_score, n)))
     remaining = [p for p in range(n) if p not in set(top)]
-    room = min(policy.evidence_rescue, policy.max_pool_size - len(top))
+    room = max(min(policy.evidence_rescue, policy.max_pool_size - len(top)), 0)
     rescued = tuple(sorted(
-        sorted(remaining, key=lambda p: candidate_rescue_key(table, p))[:max(room, 0)]))
+        sorted(remaining, key=lambda p: candidate_rescue_key(table, p))[:room]))
     positions = tuple(sorted(set(top) | set(rescued)))
     if len(positions) > policy.max_pool_size:
         positions = positions[:policy.max_pool_size]
         rescued = tuple(p for p in rescued if p in set(positions))
 
-    enumerated = comb(len(positions), k) if len(positions) >= k else 0
     return CandidatePool(
-        scope=SEARCH_POOL_EXACT,
-        positions=positions,
-        original_candidate_count=n,
-        original_combination_count=original,
-        enumerated_combination_count=enumerated,
-        policy=policy,
-        rescued_positions=rescued,
-    )
+        scope=SEARCH_POOL_EXACT, positions=positions,
+        original_candidate_count=n, original_combination_count=original,
+        enumerated_combination_count=(comb(len(positions), k)
+                                      if len(positions) >= k else 0),
+        policy=policy, rescued_positions=rescued)
 
 
-# ==========================================================================
-# 5) THE COMBINATION SEARCH  (§11, §12)
-# ==========================================================================
+# --- 5) THE COMBINATION SEARCH -----------------------------------------------
 
 @dataclass(frozen=True)
 class CombinationOutcome:
@@ -802,11 +767,11 @@ class CombinationOutcome:
     full_coverage: bool
 
     def objective_prefix(self) -> tuple:
-        """§11 keys 1-3, which every combination can answer cheaply."""
+        """Objective keys 1-3, which every combination can answer cheaply."""
         return (-self.score_sum, -self.score_min, self.minimum_rationale_size)
 
     def objective_suffix(self) -> tuple:
-        """§11 keys 5-6, applied after the rationale quality key."""
+        """Objective keys 5-6, applied after the rationale quality key."""
         return (self.rank_sum, self.candidate_uris)
 
     def as_record(self) -> dict:
@@ -829,8 +794,8 @@ def _mask_class_census(bitsets: Sequence[int], fact_count: int,
                        k: int) -> tuple[int, ...]:
     """The distinct non-zero coverage-mask classes induced by k candidates.
 
-    For mask value v, the facts whose class is exactly v are those covering every
-    candidate in v and no candidate outside it, so class v is present iff
+    For mask value v, the facts whose class is exactly v are those covering
+    every candidate in v and no candidate outside it, so class v is present iff
 
         (AND over i in v of bitsets[i]) AND (AND over i not in v of NOT bitsets[i])
 
@@ -870,10 +835,10 @@ def search_combinations(table: EvidenceTable, *, policy: str, k: int = DEFAULT_K
                         pool: CandidatePool) -> PolicySearch:
     """Enumerate every k-candidate combination inside the pool. Exact for it.
 
-    No pruning by rank, no beam, no early exit on the first feasible combination:
-    a lower-ranked candidate replaces an uncovered higher-ranked one whenever the
-    objective says so, which is why the search looks past the provisional top
-    three at all.
+    No pruning by rank, no beam, no early exit on the first feasible
+    combination: a lower-ranked candidate replaces an uncovered higher-ranked
+    one whenever the objective says so, which is why the search looks past the
+    provisional top three at all.
     """
     validate_k(k)
     validate_policy(policy)
@@ -889,8 +854,7 @@ def search_combinations(table: EvidenceTable, *, policy: str, k: int = DEFAULT_K
     best_partial_key: Optional[tuple] = None
 
     for positions in combinations(pool.positions, k):
-        census = _mask_class_census([bitsets[p] for p in positions],
-                                    fact_count, k)
+        census = _mask_class_census([bitsets[p] for p in positions], fact_count, k)
         resolved = dp_cache.get(census)
         if resolved is None:
             best_mask = 0
@@ -907,47 +871,35 @@ def search_combinations(table: EvidenceTable, *, policy: str, k: int = DEFAULT_K
             positions=positions,
             candidate_uris=tuple(table.candidates[p].canonical_candidate_uri
                                  for p in positions),
-            ranks=ranks,
-            scores=scores,
-            score_sum=sum(scores),
-            score_min=min(scores),
-            rank_sum=sum(ranks),
-            coverage_mask=best_mask,
+            ranks=ranks, scores=scores, score_sum=sum(scores),
+            score_min=min(scores), rank_sum=sum(ranks), coverage_mask=best_mask,
             coverage_count=bin(best_mask).count("1"),
-            minimum_rationale_size=minimum_size,
-            full_coverage=is_full,
-        )
+            minimum_rationale_size=minimum_size, full_coverage=is_full)
         if is_full:
             full_outcomes.append(outcome)
         partial_key = (-outcome.coverage_count, -outcome.score_sum,
                        outcome.minimum_rationale_size, outcome.rank_sum,
                        outcome.candidate_uris)
         if best_partial_key is None or partial_key < best_partial_key:
-            best_partial_key = partial_key
-            best_partial = outcome
+            best_partial_key, best_partial = partial_key, outcome
 
     return PolicySearch(
-        evidence_policy=policy,
-        k=k,
-        pool=pool,
-        full_coverage_outcomes=tuple(full_outcomes),
-        best_partial=best_partial,
-        candidates_with_any_coverage=sum(
-            1 for p in pool.positions if bitsets[p]),
-    )
+        evidence_policy=policy, k=k, pool=pool,
+        full_coverage_outcomes=tuple(full_outcomes), best_partial=best_partial,
+        candidates_with_any_coverage=sum(1 for p in pool.positions if bitsets[p]))
 
 
 def select_best_combination(
     table: EvidenceTable, search: PolicySearch, *, rho: int = DEFAULT_RHO,
     limit: int = DEFAULT_MAX_MINIMUM_RATIONALE_CANDIDATES,
 ) -> Optional[tuple[CombinationOutcome, RationaleRanking]]:
-    """The §11 objective, with the rationale key materialised only where it can
-    change the answer.
+    """The combination objective, with the rationale key materialised only where
+    it can change the answer.
 
     Keys 1-3 are cheap and already computed for every combination. The rationale
-    evidence/quality key (key 4) is expensive, so it is built only for the
-    combinations still TIED after keys 1-3 — which is exact, because a
-    combination that loses on keys 1-3 cannot be rescued by key 4.
+    evidence/quality key is expensive, so it is built only for the combinations
+    still TIED after keys 1-3 — which is exact, because a combination that loses
+    on keys 1-3 cannot be rescued by the rationale key.
     """
     feasible = search.feasible(rho)
     if not feasible:
@@ -962,23 +914,20 @@ def select_best_combination(
             table, outcome.positions, policy=search.evidence_policy,
             k=search.k, rho=rho, limit=limit)
         best = ranking.best
-        if best is None:
-            continue
-        scored.append(((best.ranking_key(), *outcome.objective_suffix()),
-                       outcome, ranking))
+        if best is not None:
+            scored.append(((best.ranking_key(), *outcome.objective_suffix()),
+                           outcome, ranking))
     if not scored:
         return None
     scored.sort(key=lambda item: item[0])
     return (scored[0][1], scored[0][2])
 
 
-# ==========================================================================
-# 6) SELECTION FOR ONE ANSWER  (§7 tier order, §13 eligibility, §14 fallback)
-# ==========================================================================
+# --- 6) SELECTION FOR ONE ANSWER ---------------------------------------------
 
 @dataclass(frozen=True)
 class AnswerSelection:
-    """The Prompt-8F result for ONE Answer."""
+    """The R1 result for ONE Answer."""
 
     answer_uri: str
     ready: bool
@@ -998,20 +947,31 @@ class AnswerSelection:
         return self.selected is not None
 
     @property
-    def eligible_for_main_corpus(self) -> bool:
-        """§13. Full coverage under a main policy, all hard filters passed, no
-        hard lexical leak, and a verbalizable rationale.
+    def mcq_evidence_level(self) -> str:
+        return (self.ranking.mcq_evidence_level if self.ranking is not None
+                else mcq_evidence_level(()))
 
-        Hard filters and hard leakage are already guaranteed by construction —
-        an ineligible fact never reaches a rationale — so the conditions left to
-        check here are the tier and verbalizability.
+    @property
+    def unresolved_granularity_risk(self) -> bool:
+        best = self.ranking.best if self.ranking else None
+        return best is not None and best.granularity_risk_incidences > 0
+
+    @property
+    def eligible_for_main_corpus(self) -> bool:
+        """At least MCQ-L1, a verbalizable rationale, and no unresolved
+        semantic granularity risk.
+
+        Hard predicate/object filters and hard leakage are already guaranteed by
+        construction — an ineligible fact never reaches a rationale — so what is
+        left to check here is the tier, verbalizability and semantic safety.
         """
         if self.selected is None or self.ranking is None:
             return False
         if self.evidence_policy not in MAIN_CORPUS_POLICIES:
             return False
         best = self.ranking.best
-        return best is not None and best.unverbalizable_count == 0
+        return (best is not None and best.unverbalizable_count == 0
+                and best.granularity_risk_incidences == 0)
 
     @property
     def eligible_for_diagnostic_corpus(self) -> bool:
@@ -1039,8 +999,8 @@ def select_for_answer(
 ) -> AnswerSelection:
     """Search the three tiers in order and return the first that succeeds.
 
-    strict-L2, then main-L1plus, then diagnostic-L0. The tier is chosen before
-    the combination objective, so a structurally attractive triple never drags an
+    strict-L2, then main-L1, then diagnostic-L0. The tier is chosen before the
+    combination objective, so a structurally attractive triple never drags an
     Answer into a weaker evidence tier. A diagnostic-L0 result is returned with
     FALLBACK_CLASS_REQUIRED_L0_ONLY attached: it is an automatically generated
     diagnostic, not a main-corpus item.
@@ -1049,8 +1009,7 @@ def select_for_answer(
     validate_rho(rho)
 
     table = build_evidence_table(answer, semantic_index=semantic_index,
-                                 rulebook=rulebook,
-                                 quality_policy=quality_policy)
+                                 rulebook=rulebook, quality_policy=quality_policy)
     pool = build_candidate_pool(table, k=k, policy=pool_policy)
 
     searches: dict[str, PolicySearch] = {}
@@ -1068,35 +1027,29 @@ def select_for_answer(
             chosen_policy, (chosen, ranking) = policy, found
 
     if chosen is None:
-        any_full = any(bool(s.full_coverage_outcomes) for s in searches.values())
-        if any_full:
-            # Full coverage exists but no rationale survived quality ranking, or
-            # none fits the presentation budget. Those are different findings and
-            # must not be collapsed into "no coverage".
-            status = SELECTION_NO_QUALITY_ELIGIBLE
-            fallback = FALLBACK_NO_QUALITY_ELIGIBLE
+        # Full coverage exists but no rationale survived quality ranking, or
+        # none fits the presentation budget. Those are different findings and
+        # must not be collapsed into "no coverage".
+        if any(bool(s.full_coverage_outcomes) for s in searches.values()):
+            status, fallback = (SELECTION_NO_QUALITY_ELIGIBLE,
+                                FALLBACK_NO_QUALITY_ELIGIBLE)
         else:
-            status = SELECTION_NO_FULL_COVERAGE
-            fallback = FALLBACK_NO_FULL_COVERAGE
+            status, fallback = (SELECTION_NO_FULL_COVERAGE,
+                                FALLBACK_NO_FULL_COVERAGE)
     else:
         status = SELECTION_STATUS_FOR_POLICY[chosen_policy]
-        fallback = (FALLBACK_L0_ONLY if chosen_policy == POLICY_DIAGNOSTIC_L0
-                    else "")
+        fallback = ""
+        if chosen_policy == POLICY_DIAGNOSTIC_L0:
+            fallback = FALLBACK_L0_ONLY
+        elif ranking is not None and ranking.best is not None and (
+                ranking.best.granularity_risk_incidences > 0):
+            fallback = FALLBACK_SEMANTIC_RISK
 
     return AnswerSelection(
-        answer_uri=answer.answer_uri,
-        ready=True,
-        status=status,
-        evidence_policy=chosen_policy,
-        selected=chosen,
-        ranking=ranking,
-        searches=searches,
-        pool=pool,
-        table=table,
-        fallback_status=fallback,
-        rho=rho,
-        k=k,
-    )
+        answer_uri=answer.answer_uri, ready=True, status=status,
+        evidence_policy=chosen_policy, selected=chosen, ranking=ranking,
+        searches=searches, pool=pool, table=table, fallback_status=fallback,
+        rho=rho, k=k)
 
 
 def not_ready_selection(answer_uri: str, *, k: int = DEFAULT_K,
@@ -1111,96 +1064,3 @@ def not_ready_selection(answer_uri: str, *, k: int = DEFAULT_K,
         answer_uri=answer_uri, ready=False, status=SELECTION_PRIMARY_NOT_READY,
         evidence_policy=None, selected=None, ranking=None, searches={},
         pool=None, table=None, fallback_status="", rho=rho, k=k)
-
-
-# ==========================================================================
-# 7) POOL-SIZE ABLATION  (§12)
-# ==========================================================================
-
-@dataclass(frozen=True)
-class PoolAblationRow:
-    """One (Answer, pool size) cell, compared against the full exact result."""
-
-    answer_uri: str
-    pool_size: int
-    search_scope: str
-    pool_candidate_count: int
-    enumerated_combination_count: int
-    evidence_policy: str
-    selected_candidate_uris: tuple[str, ...]
-    lrolesim_score_sum: float
-    minimum_rationale_size: Optional[int]
-    rationale_min_level: str
-    selection_agreement: bool
-    lrolesim_objective_regret: float
-    rationale_level_agreement: bool
-    rationale_cardinality_agreement: bool
-
-
-def pool_size_ablation(
-    answer: AnswerInput,
-    reference: AnswerSelection,
-    *,
-    semantic_index: SemanticIndex,
-    rulebook: EvidenceRuleBook,
-    quality_policy,
-    sizes: Sequence[int],
-    k: int = DEFAULT_K,
-    rho: int = DEFAULT_RHO,
-    max_exact_combinations: int = DEFAULT_MAX_EXACT_COMBINATIONS,
-) -> tuple[PoolAblationRow, ...]:
-    """Re-run the selection with a forced bounded pool, at each size.
-
-    Observational: it never moves the primary selection, which stays at the
-    reference configuration. Where the reference is FULL_EXACT the comparison is
-    against a genuinely global result, so the regret column means what it says.
-    """
-    rows: list[PoolAblationRow] = []
-    reference_uris = (reference.selected.candidate_uris
-                      if reference.selected else ())
-    reference_sum = (reference.selected.score_sum if reference.selected else 0.0)
-    reference_level = (reference.ranking.achieved_min_level
-                       if reference.ranking else LEVEL_NOT_COVERED)
-    reference_size = (reference.ranking.size if reference.ranking else None)
-
-    for size in sizes:
-        policy = PoolPolicy.for_pool_size(
-            size, max_exact_combinations=max_exact_combinations)
-        table = build_evidence_table(answer, semantic_index=semantic_index,
-                                     rulebook=rulebook,
-                                     quality_policy=quality_policy)
-        pool = build_candidate_pool(table, k=k, policy=policy, force_pool=True)
-        chosen_policy = ""
-        chosen: Optional[CombinationOutcome] = None
-        ranking: Optional[RationaleRanking] = None
-        for evidence_policy in POLICY_PRIORITY:
-            search = search_combinations(table, policy=evidence_policy, k=k,
-                                         pool=pool)
-            found = select_best_combination(table, search, rho=rho)
-            if found is not None:
-                chosen_policy = evidence_policy
-                chosen, ranking = found
-                break
-        rows.append(PoolAblationRow(
-            answer_uri=answer.answer_uri,
-            pool_size=size,
-            search_scope=pool.scope,
-            pool_candidate_count=len(pool.positions),
-            enumerated_combination_count=pool.enumerated_combination_count,
-            evidence_policy=chosen_policy,
-            selected_candidate_uris=(chosen.candidate_uris if chosen else ()),
-            lrolesim_score_sum=(chosen.score_sum if chosen else 0.0),
-            minimum_rationale_size=(ranking.size if ranking else None),
-            rationale_min_level=(ranking.achieved_min_level if ranking
-                                 else LEVEL_NOT_COVERED),
-            selection_agreement=(chosen is not None
-                                 and chosen.candidate_uris == reference_uris),
-            lrolesim_objective_regret=(
-                reference_sum - (chosen.score_sum if chosen else 0.0)),
-            rationale_level_agreement=(
-                (ranking.achieved_min_level if ranking else LEVEL_NOT_COVERED)
-                == reference_level),
-            rationale_cardinality_agreement=(
-                (ranking.size if ranking else None) == reference_size),
-        ))
-    return tuple(rows)

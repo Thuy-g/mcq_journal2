@@ -2,47 +2,34 @@
 # src/rationale_v3/quality.py
 #
 # Hard eligibility filters and pedagogical quality, applied BEFORE set cover.
+# R1 changed nothing in this module's behaviour.
 #
-# WHAT PROMPT 8E PRODUCED, AND WHY THIS MODULE EXISTS
+# WHY IT EXISTS
 #   Two of the eight rationales Prompt 8E selected are unusable as teaching
-#   material, and both were selected by a rule that could not see the problem:
+#   material, and both were minimum-cardinality covers — failures of the
+#   eligibility relation, not of set cover:
 #
-#     Eisaku Sato   dbp:url -> https://web.archive.org/web/20160307233845/...
-#                   A Web Archive snapshot URL. It discriminates all three
-#                   distractors perfectly and teaches nothing.
-#
-#     Carbon        dbp:formula (IN) -> dbr:Carbonado
-#                   "Carbonado" contains "Carbon". The rationale hands the
-#                   learner the Answer.
-#
-#   Neither is a set-cover failure: both are minimum-cardinality covers. They are
-#   failures of the eligibility relation, so the fix belongs here, before the DP
-#   runs, and not in a post-hoc filter that would quietly shrink yield without
-#   saying which fact it removed or why.
+#     Eisaku Sato   dbp:url -> a Web Archive snapshot URL. It discriminates all
+#                   three distractors perfectly and teaches nothing.
+#     Carbon        dbp:formula (IN) -> dbr:Carbonado. "Carbonado" contains
+#                   "Carbon", so the rationale hands the learner the Answer.
 #
 # HARD VERSUS SOFT
-#   A HARD filter removes a fact from every policy and every rationale, and emits
-#   a stable reason code. A SOFT signal only orders equally small rationales.
-#   Keeping them apart matters: a soft signal that can silently remove a fact is
-#   indistinguishable from a bug, and a hard filter used for ranking would drop
-#   yield that the evidence supports.
+#   A HARD filter removes a fact from every policy and every rationale and emits
+#   a stable reason code. A SOFT signal only orders equally small rationales. A
+#   soft signal that could silently remove a fact would be indistinguishable
+#   from a bug; a hard filter used for ranking would drop supported yield.
 #
 # DISPLAY IS NOT LEAKAGE TOKENIZATION
-#   `display_label` preserves parentheses and Roman numerals. The audit ran the
-#   legacy `remove_parenthetical()` on seven strings (T2.5) and showed it turns
-#   Iron(III)_chloride into "Iron chloride": the entity is misnamed, and two
-#   choices can collapse to one label, which invalidates the question (AUDIT
-#   items CE-10, INV-2). Leakage tokenization is a separate, lossy pipeline used
-#   only for comparison and never for display or identity.
+#   `display_label` preserves parentheses and Roman numerals: the legacy
+#   `remove_parenthetical()` turns Iron(III)_chloride into "Iron chloride",
+#   misnaming the entity and collapsing two choices to one label (AUDIT items
+#   CE-10, INV-2). Leakage tokenization is a separate, lossy pipeline used only
+#   for comparison, never for display or identity.
 #
-# NO MODELS
-#   No spaCy, no WordNet, no SBERT, no embeddings. Unicode normalization,
-#   percent decoding, casefolding and string comparison only. AUDIT item CE-11
-#   records that the legacy WordNet-synset leak check was so sensitive it could
-#   reject every valid class; nothing here expands a token beyond a light plural
-#   stem.
-#
-# OFFLINE AND PURE apart from reading the policy file it is given.
+# NO MODELS. Unicode normalization, percent decoding, casefolding and string
+# comparison only; nothing expands a token beyond a light plural stem (AUDIT
+# item CE-11). OFFLINE AND PURE apart from reading the policy file it is given.
 ############################################################################
 
 from __future__ import annotations
@@ -52,7 +39,7 @@ import json
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence
 from urllib.parse import unquote, urlsplit
 
 from rationale_v3.contracts import RationaleV3ContractError
@@ -67,9 +54,7 @@ class QualityPolicyError(RationaleV3ContractError):
     """The predicate/object/leakage policy file is missing or malformed."""
 
 
-# ==========================================================================
-# 1) LABELS
-# ==========================================================================
+# --- 1) LABELS ---------------------------------------------------------------
 
 def local_name(uri: str) -> str:
     """The last path segment of a URI, percent-decoded. Nothing else."""
@@ -120,9 +105,7 @@ def leakage_tokens(uri_or_text: str, *, minimum_length: int) -> tuple[str, ...]:
     return tuple(t for t in tokens if len(t) >= minimum_length)
 
 
-# ==========================================================================
-# 2) THE POLICY
-# ==========================================================================
+# --- 2) THE POLICY -----------------------------------------------------------
 
 @dataclass(frozen=True)
 class TemplateEntry:
@@ -265,9 +248,7 @@ def load_quality_policy(path: str | Path) -> QualityPolicy:
     )
 
 
-# ==========================================================================
-# 3) LEXICAL ANSWER LEAKAGE
-# ==========================================================================
+# --- 3) LEXICAL ANSWER LEAKAGE -----------------------------------------------
 
 @dataclass(frozen=True)
 class LeakageResult:
@@ -354,9 +335,7 @@ def _shared_prefix_length(a: str, b: str) -> int:
     return index
 
 
-# ==========================================================================
-# 4) OBJECT AND PREDICATE ELIGIBILITY
-# ==========================================================================
+# --- 4) OBJECT AND PREDICATE ELIGIBILITY -------------------------------------
 
 @dataclass(frozen=True)
 class FactQuality:
@@ -381,7 +360,7 @@ class FactQuality:
     def eligible(self) -> bool:
         """Hard eligibility. Verbalizability is NOT part of it: an unverbalizable
         fact stays available for diagnostics and is only barred from the main
-        corpus (§9.4, §13)."""
+        corpus."""
         return (self.predicate_ok and self.object_ok
                 and not self.leakage.hard_leak)
 
@@ -486,23 +465,21 @@ def assess_fact_quality(*, answer_uri: str, predicate_uri: str, direction: str,
     )
 
 
-# ==========================================================================
-# 5) PER-FACT SOFT ORDERING KEY
-# ==========================================================================
+# --- 5) PER-FACT SOFT ORDERING KEY -------------------------------------------
 
 def fact_quality_key(quality: FactQuality) -> tuple:
-    """The per-fact part of the §10 ordering. SMALLEST WINS.
+    """The per-fact part of the rationale ordering. SMALLEST WINS.
 
-    Only the components that depend on ONE fact live here. The coupled
-    components — rationale minimum level, redundancy across the set, and local
-    candidate-pool anonymity — are properties of the whole rationale and are
-    applied in selector.py, which is the only place that can see the set.
+    Only components that depend on ONE fact live here. The coupled components —
+    rationale minimum level, redundancy across the set, local candidate-pool
+    anonymity — are properties of the whole rationale and are applied in
+    selector.py, the only place that can see the set.
     """
     return (
-        1 if quality.leakage.soft_leak else 0,   # 5: minimise soft leakage
-        quality.pedagogical_tier,                # 6: prefer tier 1 over tier 3
-        0 if quality.verbalizable else 1,        # 7: prefer a known template
-        quality.label_length,                    # 8: prefer a shorter label
-        quality.token_count,                     # 8: prefer fewer tokens
+        1 if quality.leakage.soft_leak else 0,   # minimise soft leakage
+        quality.pedagogical_tier,                # prefer tier 1 over tier 3
+        0 if quality.verbalizable else 1,        # prefer a known template
+        quality.label_length,                    # prefer a shorter label
+        quality.token_count,                     # prefer fewer tokens
         (quality.predicate_uri, quality.direction, quality.counterpart_uri),
     )

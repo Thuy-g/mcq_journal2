@@ -4,51 +4,39 @@
 # Canonical equality and a BOUNDED, ALLOWLISTED, CYCLE-SAFE parent-child layer.
 #
 # THE DEFECT THIS ADDRESSES
-#   Prompt 8E compared counterpart URIs with string equality and said so. That is
-#   honest but it makes two mistakes look identical to a correct answer:
+#   Prompt 8E compared counterpart URIs with string equality, which makes two
+#   mistakes look identical to a correct answer: `Antisthenes_(Heraclitean)` and
+#   `Heraclitus` are the same entity under a DBpedia redirect, and a candidate
+#   whose birthPlace is a ward of the Answer's birthPlace SUPPORTS the more
+#   general claim. Both failures push a fact UP in apparent strength.
 #
-#     * `Antisthenes_(Heraclitean)` and `Heraclitus` are the same entity under a
-#       DBpedia redirect, yet 8E reported "the candidate has a different object"
-#       and let that support a distractor;
-#     * a candidate whose birthPlace is a ward of the Answer's birthPlace SUPPORTS
-#       the more general claim, yet 8E counted the different URI as contrast.
+#   This layer can only push evidence DOWN: it removes apparent contrast by
+#   making a fact NOT_COVERED, and never manufactures exclusion. In R1 it also
+#   never pushes an observed positive alternative down to an absence — an
+#   unavailable index is reported through `semantic_check_status` and
+#   `granularity_risk`, which block main-corpus eligibility instead.
 #
-#   Both failures push a fact UP in apparent strength. The layer here can only
-#   push evidence DOWN — it removes or downgrades apparent contrast and never
-#   manufactures exclusion (Prompt 8F §5, PARENT_CHILD_NOTE).
-#
-# WHAT IS AND IS NOT A REASONER
-#   This is not a reasoner. It is a breadth-first walk over an ADJACENCY MAP that
-#   was built from an explicit allowlist of predicates, with a configured maximum
-#   depth, a visited set, and a recorded rule id and provenance for every edge it
-#   traverses. There is no property-hierarchy inference, no transitive closure
-#   over arbitrary predicates, no owl reasoning and no type inference.
+# NOT A REASONER
+#   A breadth-first walk over an ADJACENCY MAP built from an explicit allowlist,
+#   with a configured maximum depth, a visited set and a recorded rule id per
+#   edge. No property-hierarchy inference, no transitive closure over arbitrary
+#   predicates, no owl reasoning, no type inference.
 #
 # WHY THE ALLOWLIST IS SO SHORT
-#   DBpedia infobox predicates are polysemous ACROSS TEMPLATES. `dbp:region` is
-#   the containing region on a settlement page and the philosophical tradition on
-#   a philosopher page; `dbp:type`, `dbp:class`, `dbp:category`, `dbp:location`,
-#   `dbp:parent` and `dbp:owner` are similarly overloaded. Traversing them would
-#   silently mix "is geographically inside" with "belongs to the tradition of",
-#   and the resulting relation would carry a name that no longer describes it.
-#   The default policy therefore admits administrative-containment slots only,
-#   and every excluded predicate is listed in the policy with its reason.
+#   DBpedia infobox predicates are polysemous ACROSS TEMPLATES: `dbp:region` is
+#   the containing region on a settlement page and the philosophical tradition
+#   on a philosopher page. The default policy admits administrative-containment
+#   slots only, and every excluded predicate is listed with its reason.
 #
 # WHERE THE EDGES COME FROM
-#   From a CACHED semantic index, built once by an explicit offline command from
-#   the pinned local KG (see `SemanticIndexCache`). The V3 run never loads the
-#   1.2 GB pickle itself: it loads the cache, verifies the cache key, and refuses
-#   a cache built for a different KG, policy, depth or object list. When no cache
-#   is present every parent-child question answers SEMANTIC_RELATION_UNAVAILABLE,
-#   which is a reportable state and not an error.
+#   A CACHED index built once by an explicit offline command. The run never
+#   loads the 1.2 GB pickle: it verifies the cache key and refuses a cache built
+#   for a different KG, policy, depth or object list. With no cache every
+#   parent-child question answers SEMANTIC_RELATION_UNAVAILABLE, which is a
+#   reportable state and not an error.
 #
-# NEVER FROM URI STRINGS
-#   No relation in this module is inferred from how a URI is spelled. String
-#   shape drives exactly one thing — canonical NORMALIZATION of the same URI
-#   (bracket stripping, NFC, trailing-slash removal) — and normalization is not
-#   a semantic claim.
-#
-# OFFLINE AND PURE apart from reading the cache and policy files it is given.
+# No relation here is inferred from how a URI is spelled: string shape drives
+# only canonical NORMALIZATION, which is not a semantic claim.
 ############################################################################
 
 from __future__ import annotations
@@ -91,9 +79,7 @@ class SemanticCacheError(RationaleV3ContractError):
     """A cached semantic index does not match the key it must have been built for."""
 
 
-# ==========================================================================
-# 1) CANONICALIZATION
-# ==========================================================================
+# --- 1) CANONICALIZATION -----------------------------------------------------
 
 def normalize_uri(uri: str) -> str:
     """Exact URI normalization. NOT a semantic claim.
@@ -121,9 +107,7 @@ def normalize_uri(uri: str) -> str:
     return text
 
 
-# ==========================================================================
-# 2) THE POLICY
-# ==========================================================================
+# --- 2) THE POLICY -----------------------------------------------------------
 
 @dataclass(frozen=True)
 class TraversalRule:
@@ -258,9 +242,7 @@ def load_semantic_relation_policy(path: str | Path) -> SemanticRelationPolicy:
     )
 
 
-# ==========================================================================
-# 3) THE CACHE KEY
-# ==========================================================================
+# --- 3) THE CACHE KEY --------------------------------------------------------
 
 @dataclass(frozen=True)
 class SemanticIndexCacheKey:
@@ -301,9 +283,7 @@ def source_object_list_sha256(uris: Iterable[str]) -> str:
     return _sha256_text(payload)
 
 
-# ==========================================================================
-# 4) THE INDEX
-# ==========================================================================
+# --- 4) THE INDEX ------------------------------------------------------------
 
 @dataclass(frozen=True)
 class AncestorEdge:
@@ -498,9 +478,7 @@ class SemanticIndex:
         }
 
 
-# ==========================================================================
-# 5) BUILDING AND CACHING
-# ==========================================================================
+# --- 5) BUILDING AND CACHING -------------------------------------------------
 
 def _flatten_equivalence(pairs: Sequence[tuple[str, str]]) -> dict[str, str]:
     """Resolve source -> target chains to a single representative, cycle-safe.
