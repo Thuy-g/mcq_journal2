@@ -1,0 +1,9 @@
+answer_uri,display_label,evidence_policy,feasible_combination_count,combinations_tied_after_objective_key_4,rank_sum_tiebreak_reached,distinct_rank_sums_among_tied,rank_sum_decided_the_tie,selected_ranks_with_rank_sum,selected_ranks_without_rank_sum,selection_changed_when_rank_sum_removed,candidate_rank_sum
+http://dbpedia.org/resource/Shinya_Yamanaka,Shinya Yamanaka,main-l1,1330,1,False,1,False,1|2|3,1|2|3,False,6
+http://dbpedia.org/resource/Shin'ichirō_Tomonaga,Shin'ichirō Tomonaga,main-l1,1540,1,False,1,False,1|2|3,1|2|3,False,6
+http://dbpedia.org/resource/Eisaku_Satō,Eisaku Satō,main-l1,680,3,True,3,True,1|5|6,1|5|6,False,12
+http://dbpedia.org/resource/Carbon,Carbon,main-l1,4960,1,False,1,False,1|2|3,1|2|3,False,6
+http://dbpedia.org/resource/Silicon,Silicon,main-l1,4,1,False,1,False,1|2|3,1|2|3,False,6
+http://dbpedia.org/resource/Aristotle,Aristotle,main-l1,2600,1,False,1,False,1|2|3,1|2|3,False,6
+http://dbpedia.org/resource/Plato,Plato,main-l1,2600,1,False,1,False,1|2|3,1|2|3,False,6
+http://dbpedia.org/resource/Adam_Smith,Adam Smith,main-l1,816,1,False,1,False,1|2|3,1|2|3,False,6
