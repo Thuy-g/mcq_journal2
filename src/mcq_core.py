@@ -103,13 +103,32 @@ ranker's own residual ordering, which keeps the resolution inside the LRoleSim
 framework instead of falling through to alphabetical URI order. See
 ``docs/audits/RANK_SUM_EFFECT_AUDIT.md``.
 
-SEARCH SCOPE
-------------
-``FULL_EXACT`` only: every one of the C(n, 3) candidate combinations is
-enumerated and scored. There is no bounded pool, no evidence-rescue pool, no
-beam, no greedy pass, no random sampling, and no early acceptance of the first
-feasible combination. The paper claims exactness for the reported experiments,
-and a heuristic would void that claim.
+SEARCH SCOPE — two exhaustive modes, and the claim each one supports
+---------------------------------------------------------------------
+There is no beam, no greedy pass, no random sampling, and no early acceptance
+of the first feasible combination, in either mode. What changes between the two
+modes is *what the exhaustive search is exhaustive over*, and that is a
+scientific claim rather than an implementation detail:
+
+``FULL_EXACT``
+    Every one of the C(n, 3) combinations over the **complete ranked candidate
+    pool** is enumerated and scored. The result is exact over the complete
+    ranked candidate pool: ``global_optimality_claim`` is true.
+``POOL_EXACT``
+    Chosen automatically when C(n, 3) exceeds ``MAX_EXACT_COMBINATIONS``. A
+    bounded pool is built — the top candidates by frozen LRoleSim rank, plus a
+    few evidence-rescue candidates the rank cutoff would otherwise drop — and
+    **every** combination inside that pool is enumerated and scored. The result
+    is exact *within the bounded candidate pool* and nothing more:
+    ``global_optimality_claim`` is false, and no optimality claim is made over
+    candidates excluded from the pool.
+
+Both modes run the identical coverage masks, the identical minimum-cardinality
+bitmask DP, the identical rationale enumeration, the identical fourteen-field
+rationale ranking and the identical six-key candidate-combination objective.
+The only difference is the set of candidate positions the combinations are
+drawn from. Evidence rescue decides which candidates the exact search may see;
+it is no part of the objective and it changes no evidence level.
 """
 
 from __future__ import annotations
@@ -140,7 +159,22 @@ POLICY_THRESHOLD = {"strict-l2": "L2", "main-l1": "L1", "diagnostic-l0": "L0"}
 
 K_DISTRACTORS = 3          # exactly three distractors per item
 RHO_MAX_RATIONALE_SIZE = 3  # a rationale larger than this is not usable
-SEARCH_SCOPE = "FULL_EXACT"
+
+# The two search scopes. Both enumerate exhaustively; they differ in what they
+# enumerate over, and therefore in what may be claimed about the result.
+SEARCH_FULL_EXACT = "FULL_EXACT"
+SEARCH_POOL_EXACT = "POOL_EXACT"
+
+# Bounded-pool defaults, INHERITED UNCHANGED from the frozen R1 policy and kept
+# configurable only through PoolPolicy. C(107, 3) = 198,485 fits the budget and
+# C(108, 3) = 204,156 does not, so a class needs more than 107 candidates
+# before the kernel leaves FULL_EXACT at all. Three quarters of the pool is
+# reserved for LRoleSim plausibility and one quarter for evidence rescue.
+MAX_EXACT_COMBINATIONS = 200_000
+POOL_TOP_BY_LROLESIM = 75
+POOL_EVIDENCE_RESCUE = 25
+MAX_POOL_SIZE = 100
+POOL_POLICY_NAME = "top_lrolesim_plus_evidence_rescue_v1"
 
 OPEN_WORLD_NOTE = (
     "Absence in the pinned snapshot is not falsity. L0 records that the "
@@ -162,6 +196,29 @@ RANK_SUM_NOTE = (
     "candidate_rank_sum is objective key 5: a deterministic tie-break aligned "
     "with the LRoleSim ranking. It is not a plausibility metric and not a "
     "pedagogical-quality objective."
+)
+# The scope of the exactness claim, in words, travelling with every record so
+# that a record read on its own cannot be mistaken for the stronger claim.
+SEARCH_SCOPE_NOTE = {
+    SEARCH_FULL_EXACT: (
+        "Every combination over the COMPLETE ranked candidate pool was "
+        "enumerated and scored. The selection is exact over the complete "
+        "ranked candidate pool of the selected class. This is still a local "
+        "claim about that pool, never a claim about DBpedia as a whole."
+    ),
+    SEARCH_POOL_EXACT: (
+        "Every combination inside the BOUNDED candidate pool was enumerated "
+        "and scored, so the selection is exact within the bounded candidate "
+        "pool. No optimality claim is made over candidates excluded from the "
+        "pool: this result is NOT globally optimal, is NOT a global optimum, "
+        "and is NOT exact over all candidates."
+    ),
+}
+EVIDENCE_RESCUE_NOTE = (
+    "Evidence rescue is a pool-construction heuristic that decides which "
+    "candidates the exact search may see. It is no part of the six-key "
+    "candidate-combination objective, it creates no evidence level, and it "
+    "reinterprets no absence as falsity."
 )
 
 
@@ -674,6 +731,240 @@ def rank_minimum_rationales(
 
 
 # --------------------------------------------------------------------------
+# The bounded candidate pool — FULL_EXACT and POOL_EXACT
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PoolPolicy:
+    """How the searchable candidate pool is bounded, and by how much.
+
+    C(n, 3) grows cubically: 107 candidates cost 198,485 combinations, 200
+    candidates cost 1,313,400, and 1,000 candidates cost 166,167,000. A DBpedia
+    class large enough to matter therefore makes exhaustive enumeration over the
+    complete pool impractical long before the pool itself becomes hard to build.
+    This record is the ONLY place where that budget is expressed, so a reviewer
+    can see the whole scalability guard as five numbers.
+
+    The defaults are inherited from the frozen R1 policy and are not to be
+    changed silently. ``for_pool_size`` scales them for ablation and nothing
+    else.
+    """
+
+    max_exact_combinations: int = MAX_EXACT_COMBINATIONS
+    top_by_lrolesim: int = POOL_TOP_BY_LROLESIM
+    evidence_rescue: int = POOL_EVIDENCE_RESCUE
+    max_pool_size: int = MAX_POOL_SIZE
+    name: str = POOL_POLICY_NAME
+
+    def __post_init__(self) -> None:
+        """Reject a policy that cannot mean what it says, at construction time.
+
+        A silently truncated pool would make the published
+        ``pool_top_by_lrolesim`` and ``pool_evidence_rescue_limit`` fields
+        describe a search that never happened, so an inconsistent policy is an
+        error rather than something to clamp.
+        """
+        if min(self.max_exact_combinations, self.top_by_lrolesim,
+               self.evidence_rescue, self.max_pool_size) < 0:
+            raise ValueError(f"pool policy {self.name}: no limit may be negative")
+        if self.max_pool_size < K_DISTRACTORS:
+            raise ValueError(
+                f"pool policy {self.name}: max_pool_size {self.max_pool_size} is "
+                f"below k = {K_DISTRACTORS}, so no combination could be formed")
+        if self.top_by_lrolesim + self.evidence_rescue > self.max_pool_size:
+            raise ValueError(
+                f"pool policy {self.name}: top_by_lrolesim {self.top_by_lrolesim} "
+                f"+ evidence_rescue {self.evidence_rescue} exceeds max_pool_size "
+                f"{self.max_pool_size}")
+
+    @classmethod
+    def for_pool_size(cls, size: int) -> "PoolPolicy":
+        """The inherited 3:1 LRoleSim-to-rescue split, scaled to ``size``.
+
+        ``top = ceil(3M/4)``, ``rescue = M - top``. M = 100 reproduces the
+        default 75 + 25 exactly, which is the point: the ablation sizes are the
+        same policy at four scales, not four different policies.
+        """
+        top = math.ceil(3 * size / 4)
+        return cls(top_by_lrolesim=top, evidence_rescue=size - top,
+                   max_pool_size=size, name=f"{POOL_POLICY_NAME}_M{size}")
+
+
+def candidate_rescue_key(case: AnswerCase, position: int) -> tuple:
+    """Pool-construction ordering for ONE candidate. Smallest tuple wins.
+
+    WHY THIS IS DELIBERATELY CANDIDATE-LOCAL
+        Every component below is read off the single candidate at ``position``,
+        from evidence and quality fields that were already classified upstream.
+        Nothing here inspects a pair, a triple, or which other candidates might
+        join it. A rescue rule that scored combinations would need the very
+        C(n, 3) enumeration the bounded pool exists to avoid, so it would be
+        self-defeating: the pool must be cheap to build, or it buys nothing.
+
+    THE ORDER, and what each component protects
+        1  ``-strength(best level)``  the strongest level any eligible Answer
+           fact reaches against this candidate. An L1- or L2-bearing candidate
+           therefore always ranks ahead of an otherwise comparable L0-only
+           candidate, and a candidate that only ever SUPPORTS the Answer's
+           propositions ranks last — NOT_COVERED provides no rescue coverage,
+           exactly as it provides no combination coverage.
+        2  ``-l2_incidences``   more verified exclusions
+        3  ``-l1_incidences``   more observed alternative values
+        4  ``best_tier``        the best pedagogical tier among the facts that
+           actually reach L1/L2 against this candidate; the sentinel keeps a
+           candidate with no such fact behind every candidate that has one
+        5  ``soft_leak``        counted only over facts that discriminate this
+           candidate, since a soft leak on a fact that covers nobody here would
+           be the same constant for every candidate and could order nothing
+        6  ``granularity_risk`` fewer risky apparent contrasts
+        7  ``rank``             the frozen LRoleSim rank, so that among equals
+           the ranker's own ordering decides
+        8  ``uri``             canonical last resort, so two runs on identical
+           input can never disagree
+
+    This is a POOL-CONSTRUCTION heuristic and is used nowhere else. It never
+    appears in the six-key candidate-combination objective, it cannot change an
+    evidence level, and being rescued confers no advantage inside the search:
+    a rescued candidate is scored by exactly the same objective as any other.
+    """
+    best = "NOT_COVERED"
+    l2 = l1 = soft = risk = 0
+    best_tier = 1 + max(
+        (case.facts[i].quality.pedagogical_tier for i in case.eligible_fact_indices),
+        default=0)                       # sentinel: worse than any real tier
+    for index in case.eligible_fact_indices:
+        fact = case.facts[index]
+        level = fact.levels[position]
+        if LEVEL_STRENGTH[level] > LEVEL_STRENGTH[best]:
+            best = level
+        if level == "L2":
+            l2 += 1
+        elif level == "L1":
+            l1 += 1
+        if LEVEL_STRENGTH[level] >= LEVEL_STRENGTH["L1"]:
+            best_tier = min(best_tier, fact.quality.pedagogical_tier)
+            soft += 1 if fact.quality.soft_leak else 0
+        if fact.granularity_risks[position] != "NONE":
+            risk += 1
+    candidate = case.candidates[position]
+    return (-LEVEL_STRENGTH[best], -l2, -l1, best_tier, soft, risk,
+            candidate.rank, candidate.uri)
+
+
+@dataclass(frozen=True)
+class CandidatePool:
+    """The candidate positions the combination search will enumerate over.
+
+    ``positions`` is ascending, so combinations drawn from it keep the same
+    position order as a full enumeration and every coverage mask keeps the same
+    bit order. Under FULL_EXACT it is simply ``range(n)``.
+    """
+
+    scope: str
+    positions: tuple[int, ...]
+    policy: PoolPolicy
+    original_candidate_count: int
+    original_combination_count: int
+    enumerated_combination_count: int
+    rescued_positions: tuple[int, ...]
+
+    @property
+    def global_optimality_claim(self) -> bool:
+        """True ONLY under FULL_EXACT: exact over the complete ranked pool."""
+        return self.scope == SEARCH_FULL_EXACT
+
+    @property
+    def pool_optimality_claim(self) -> bool:
+        """Always true: both scopes enumerate their own pool exhaustively."""
+        return True
+
+    def provenance(self, case: AnswerCase) -> dict:
+        """The compact scope record that must travel with every selection.
+
+        Rescued candidates are published by rank and URI rather than by
+        position, because a position is meaningless outside this run. No
+        per-candidate rescue-key debug rows are emitted: the pool is
+        reproducible from the policy and the frozen input, so publishing one
+        row per candidate would bloat the output without adding evidence.
+        """
+        rescued = [case.candidates[p] for p in self.rescued_positions]
+        return {
+            "search_scope": self.scope,
+            "search_scope_note": SEARCH_SCOPE_NOTE[self.scope],
+            "global_optimality_claim": self.global_optimality_claim,
+            "pool_optimality_claim": self.pool_optimality_claim,
+            "pool_policy": self.policy.name,
+            "original_candidate_count": self.original_candidate_count,
+            "pool_candidate_count": len(self.positions),
+            "original_combination_count": self.original_combination_count,
+            "enumerated_combination_count": self.enumerated_combination_count,
+            "pool_top_by_lrolesim": self.policy.top_by_lrolesim,
+            "pool_evidence_rescue_limit": self.policy.evidence_rescue,
+            "max_pool_size": self.policy.max_pool_size,
+            "max_exact_combinations": self.policy.max_exact_combinations,
+            "evidence_rescue_count": len(self.rescued_positions),
+            "evidence_rescued_candidate_ranks": [c.rank for c in rescued],
+            "evidence_rescued_candidate_uris": [c.uri for c in rescued],
+            "evidence_rescue_note": EVIDENCE_RESCUE_NOTE,
+        }
+
+
+DEFAULT_POOL_POLICY = PoolPolicy()
+
+
+def build_candidate_pool(
+    case: AnswerCase,
+    policy: PoolPolicy = DEFAULT_POOL_POLICY,
+    force_pool: bool = False,
+) -> CandidatePool:
+    """FULL_EXACT under the combination budget, POOL_EXACT above it.
+
+    The bounded pool is the top ``top_by_lrolesim`` candidates of the FROZEN
+    LRoleSim ranking — no similarity is recomputed, no new measure is invented,
+    no embedding is consulted — plus up to ``evidence_rescue`` candidates from
+    below that cutoff, ordered by ``candidate_rescue_key``.
+
+    WHY THE RESCUE SLOTS EXIST
+        Structural plausibility and evidence availability are different
+        properties. The most LRoleSim-similar candidates are frequently the ones
+        that SHARE the Answer's propositions, which is precisely the case in
+        which they carry no usable evidence at all — the Eisaku Satō pattern,
+        where ranks 2 and 3 have zero L1-covering eligible facts. A pure
+        top-of-ranking pool would systematically discard the low-ranked
+        candidates that are the only ones a strong rationale can discriminate,
+        and the bounded search would then report infeasibility that the complete
+        search does not have. The rescue quarter is the cheapest available
+        insurance against that failure mode.
+
+    ``force_pool`` is an evaluation and debugging option: it makes POOL_EXACT
+    testable and ablatable on classes small enough to verify by brute force. It
+    is never the production default.
+    """
+    n = len(case.candidates)
+    original = math.comb(n, K_DISTRACTORS) if n >= K_DISTRACTORS else 0
+    if not force_pool and original <= policy.max_exact_combinations:
+        return CandidatePool(
+            scope=SEARCH_FULL_EXACT, positions=tuple(range(n)), policy=policy,
+            original_candidate_count=n, original_combination_count=original,
+            enumerated_combination_count=original, rescued_positions=())
+
+    # Positions are canonical rank order, so the first m positions ARE the top
+    # m of the frozen LRoleSim ranking; no re-sorting by score is needed.
+    top = min(policy.top_by_lrolesim, n)
+    room = max(min(policy.evidence_rescue, policy.max_pool_size - top), 0)
+    rescued = tuple(sorted(
+        sorted(range(top, n), key=lambda p: candidate_rescue_key(case, p))[:room]))
+    positions = tuple(range(top)) + rescued
+    return CandidatePool(
+        scope=SEARCH_POOL_EXACT, positions=positions, policy=policy,
+        original_candidate_count=n, original_combination_count=original,
+        enumerated_combination_count=(math.comb(len(positions), K_DISTRACTORS)
+                                      if len(positions) >= K_DISTRACTORS else 0),
+        rescued_positions=rescued)
+
+
+# --------------------------------------------------------------------------
 # Candidate-combination search — the full objective
 # --------------------------------------------------------------------------
 
@@ -727,15 +1018,20 @@ def combination_objective_key(
     )
 
 
-def feasible_combinations(case: AnswerCase, policy: str) -> list[tuple[tuple[int, ...], int]]:
-    """Every C(n, 3) combination that is fully coverable under one policy.
+def feasible_combinations(
+    case: AnswerCase, policy: str, pool: CandidatePool
+) -> list[tuple[tuple[int, ...], int]]:
+    """Every combination IN THE POOL that is fully coverable under one policy.
 
-    FULL_EXACT: the loop below enumerates all C(n, 3) combinations and applies
-    no pruning by rank, no beam, no sampling and no early exit. That is the
-    only reason the search can look past the provisional LRoleSim top three at
-    all — a lower-ranked candidate replaces an uncovered higher-ranked one
-    whenever the objective says so, which is exactly what happens to Eisaku
-    Satō, whose ranks 2 and 3 have zero L1-covering eligible facts.
+    The loop below enumerates every combination of ``pool.positions`` and
+    applies no pruning by rank, no beam, no sampling and no early exit. Under
+    FULL_EXACT the pool is the complete ranked candidate pool, so this is all
+    C(n, 3) combinations; under POOL_EXACT it is all C(|pool|, 3) combinations
+    of the bounded pool. Exhaustiveness within the pool is what lets the search
+    look past the provisional LRoleSim top three at all — a lower-ranked
+    candidate replaces an uncovered higher-ranked one whenever the objective
+    says so, which is exactly what happens to Eisaku Satō, whose ranks 2 and 3
+    have zero L1-covering eligible facts.
 
     Returns ``(positions, minimum_rationale_size)`` for the combinations that
     survive. "Fully coverable" and "|R*| <= ρ" collapse into one test because
@@ -748,7 +1044,7 @@ def feasible_combinations(case: AnswerCase, policy: str) -> list[tuple[tuple[int
     threshold = POLICY_THRESHOLD[policy]
     cache: dict[frozenset, int] = {}
     survivors: list[tuple[tuple[int, ...], int]] = []
-    for positions in combinations(range(len(case.candidates)), K_DISTRACTORS):
+    for positions in combinations(pool.positions, K_DISTRACTORS):
         masks = frozenset(m for m in case_masks(case, positions, threshold) if m)
         if masks not in cache:
             cache[masks] = minimum_cover_size(masks, K_DISTRACTORS)
@@ -773,10 +1069,24 @@ class Selection:
     lrolesim_score_sum: float
     lrolesim_score_min: float
     candidate_rank_sum: int
-    candidate_count: int
-    enumerated_combination_count: int
+    pool: CandidatePool
     feasible_combination_count: int
     combinations_tied_after_objective_key_4: int
+
+    @property
+    def search_scope(self) -> str:
+        """FULL_EXACT or POOL_EXACT — the scope of the exactness claim."""
+        return self.pool.scope
+
+    @property
+    def candidate_count(self) -> int:
+        """The COMPLETE ranked candidate pool, never the bounded search pool."""
+        return self.pool.original_candidate_count
+
+    @property
+    def enumerated_combination_count(self) -> int:
+        """How many combinations were actually scored, in whichever scope."""
+        return self.pool.enumerated_combination_count
 
     @property
     def mcq_evidence_level(self) -> str:
@@ -790,8 +1100,20 @@ class Selection:
         return f"MCQ-{self.rationale.rationale_min_level}"
 
 
-def select_distractors(case: AnswerCase) -> Selection | None:
-    """Choose k = 3 distractors and their rationale, exactly.
+def select_distractors(
+    case: AnswerCase,
+    pool_policy: PoolPolicy = DEFAULT_POOL_POLICY,
+    force_pool: bool = False,
+) -> Selection | None:
+    """Choose k = 3 distractors and their rationale, exactly within the pool.
+
+    The pool is built first and decides the search scope. Under FULL_EXACT the
+    pool is the complete ranked candidate pool and the result is exact over it;
+    under POOL_EXACT the pool is bounded and the result is exact only within
+    that bounded pool. Everything after that line is identical in both scopes —
+    same coverage masks, same set-cover DP, same rationale enumeration and
+    ranking, same six-key objective — so no scientific behaviour depends on
+    which scope was taken, only the set of candidates it ranged over.
 
     Policy order is ``strict-l2 -> main-l1 -> diagnostic-l0`` and the FIRST
     policy with at least one feasible full-coverage combination is selected. A
@@ -810,9 +1132,9 @@ def select_distractors(case: AnswerCase) -> Selection | None:
     rationale key would change nothing. Every surviving combination is then
     ordered by the complete six-key tuple.
     """
-    enumerated = math.comb(len(case.candidates), K_DISTRACTORS)
+    pool = build_candidate_pool(case, policy=pool_policy, force_pool=force_pool)
     for policy in POLICY_ORDER:
-        survivors = feasible_combinations(case, policy)
+        survivors = feasible_combinations(case, policy, pool)
         if not survivors:
             continue
 
@@ -850,8 +1172,7 @@ def select_distractors(case: AnswerCase) -> Selection | None:
             lrolesim_score_sum=sum(scores),
             lrolesim_score_min=min(scores),
             candidate_rank_sum=sum(case.candidates[p].rank for p in positions),
-            candidate_count=len(case.candidates),
-            enumerated_combination_count=enumerated,
+            pool=pool,
             feasible_combination_count=len(survivors),
             combinations_tied_after_objective_key_4=tied,
         )
@@ -898,11 +1219,14 @@ def canonical_record(case: AnswerCase, selection: Selection) -> dict:
         "answer_uri": selection.answer_uri,
         "display_label": selection.display_label,
         "evidence_policy": selection.evidence_policy,
-        "search_scope": SEARCH_SCOPE,
         "k": K_DISTRACTORS,
         "rho": RHO_MAX_RATIONALE_SIZE,
-        "candidate_count": selection.candidate_count,
-        "enumerated_combination_count": selection.enumerated_combination_count,
+        # Search scope, pool policy, pool sizes, the rescued candidates and BOTH
+        # optimality claims. This block travels with every record precisely so
+        # that the difference between "exact over the complete ranked candidate
+        # pool" and "exact within the bounded candidate pool" can never be lost
+        # between the kernel and the paper.
+        **selection.pool.provenance(case),
         "feasible_combination_count": selection.feasible_combination_count,
         "combinations_tied_after_objective_key_4":
             selection.combinations_tied_after_objective_key_4,

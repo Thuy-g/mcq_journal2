@@ -14,7 +14,11 @@ Four groups:
   published regression CSV checked against what the kernel actually produces;
 * **determinism and safety** — byte-identical canonical output, immunity to
   the caller's candidate ordering, no network, no forbidden imports, and the
-  terminology guard.
+  terminology guard;
+* **the bounded candidate pool** (Phase A2) — the FULL_EXACT/POOL_EXACT
+  boundary, evidence rescue below the LRoleSim cutoff, exactness *inside* the
+  bounded pool checked against brute force, the anonymity denominator staying
+  on the COMPLETE ranked candidate pool, and the published pool ablation.
 
 Nothing here imports ``scripts/spec_freeze_audit.py``, ``src.rationale_v3`` or
 ``src.rationale``. The kernel is checked on its own terms. No network, no
@@ -27,6 +31,7 @@ import ast
 import csv
 import itertools
 import json
+import math
 import random
 import socket
 import sys
@@ -38,13 +43,24 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from mcq_core import (  # noqa: E402
+    DEFAULT_POOL_POLICY,
     K_DISTRACTORS,
     LEVEL_STRENGTH,
+    MAX_EXACT_COMBINATIONS,
+    MAX_POOL_SIZE,
     POLICY_ORDER,
+    POOL_EVIDENCE_RESCUE,
+    POOL_POLICY_NAME,
+    POOL_TOP_BY_LROLESIM,
+    SEARCH_FULL_EXACT,
+    SEARCH_POOL_EXACT,
     AnswerFact,
     Candidate,
     FactQuality,
+    PoolPolicy,
+    build_candidate_pool,
     build_case,
+    candidate_rescue_key,
     canonical_record,
     case_masks,
     combination_objective_key,
@@ -61,6 +77,9 @@ R1_DIR = ROOT / "outputs" / "journal2_week2_rationale_v3_r1_2026-08-03"
 HANDOFF = (ROOT / "outputs" / "journal2_week2_extract_integration_2026-07-30"
            / "candidate_ranking_handoff.jsonl")
 REGRESSION_CSV = ROOT / "docs" / "checks" / "MINIMAL_CORE_PHASE_A_REGRESSION.csv"
+ABLATION_CSV = ROOT / "docs" / "checks" / "MINIMAL_CORE_PHASE_A2_POOL_ABLATION.csv"
+A2_WALKTHROUGH = ROOT / "docs" / "checks" / "MINIMAL_CORE_PHASE_A2_POOL_WALKTHROUGH.md"
+ABLATION_POOL_SIZES = (25, 50, 75, 100)
 
 SATO = "http://dbpedia.org/resource/Eisaku_Satō"
 ALMA_MATER = ("http://dbpedia.org/property/almaMater", "OUT",
@@ -693,7 +712,8 @@ def test_no_forbidden_module_is_named_in_the_kernel_source():
 def test_terminology_uses_the_authoritative_l1_name():
     """EVIDENCE_TAXONOMY_V1.md is authoritative; the superseded name is banned."""
     for path in (CORE_SOURCE,
-                 ROOT / "docs" / "checks" / "MINIMAL_CORE_PHASE_A_WALKTHROUGH.md"):
+                 ROOT / "docs" / "checks" / "MINIMAL_CORE_PHASE_A_WALKTHROUGH.md",
+                 A2_WALKTHROUGH):
         text = path.read_text("utf-8")
         assert "POSITIVE_VALUE_CONTRAST" not in text
         assert "positive contrast" not in text.lower()
@@ -710,3 +730,586 @@ def test_open_world_and_scope_caveats_travel_with_every_record(pilot_cases,
         assert "tie-break" in record["candidate_rank_sum_note"]
         assert "no rationale" in record["lrolesim_role_note"]
         assert record["search_scope"] == "FULL_EXACT"
+
+
+# --------------------------------------------------------------------------
+# 8. Phase A2 — the bounded candidate pool
+# --------------------------------------------------------------------------
+#
+# Everything below concerns WHICH candidates the exact search ranges over. None
+# of it touches how a combination is scored once chosen: the set-cover DP, the
+# evidence thresholds, the fourteen-field rationale key and the six-key
+# objective are the Phase A ones, tested unchanged in sections 1-7 above.
+
+
+def uniform_case(levels_by_candidate, **fact_kwargs):
+    """A one-fact case whose single fact carries the given per-candidate levels."""
+    return make_case([make_fact(list(levels_by_candidate), **fact_kwargs)])
+
+
+def shuffled_case(case, seed):
+    """The same information presented in a different caller-side order."""
+    order = list(range(len(case.candidates)))
+    random.Random(seed).shuffle(order)
+    return build_case(
+        case.answer_uri, case.display_label,
+        [case.candidates[i] for i in order],
+        [AnswerFact(quality=fact.quality,
+                    levels=tuple(fact.levels[i] for i in order),
+                    exclusion_bases=tuple(fact.exclusion_bases[i] for i in order),
+                    granularity_risks=tuple(fact.granularity_risks[i] for i in order))
+         for fact in case.facts])
+
+
+def rescue_case(n=60, evidence_positions=(57, 58, 59)):
+    """The adversarial shape that justifies evidence rescue.
+
+    Every high-ranked candidate SHARES the Answer's proposition, so it is
+    NOT_COVERED and carries no usable evidence whatsoever. Only three deeply
+    low-ranked candidates have an observed alternative value. A pool built from
+    the LRoleSim ranking alone therefore contains no feasible triple at all.
+    """
+    levels = ["NOT_COVERED"] * n
+    for position in evidence_positions:
+        levels[position] = "L1"
+    return uniform_case(levels)
+
+
+# --- A. the defaults, and FULL_EXACT preservation on the pilot ---------------
+
+
+def test_pool_defaults_are_the_inherited_frozen_values():
+    """These are R1's numbers. A silent change here would change the method."""
+    assert MAX_EXACT_COMBINATIONS == 200_000
+    assert (POOL_TOP_BY_LROLESIM, POOL_EVIDENCE_RESCUE, MAX_POOL_SIZE) == (75, 25, 100)
+    assert POOL_POLICY_NAME == "top_lrolesim_plus_evidence_rescue_v1"
+    assert DEFAULT_POOL_POLICY == PoolPolicy()
+    assert POOL_TOP_BY_LROLESIM + POOL_EVIDENCE_RESCUE == MAX_POOL_SIZE
+    # A 100-candidate pool is 161,700 triples, every one of which is enumerated.
+    assert math.comb(MAX_POOL_SIZE, K_DISTRACTORS) == 161_700
+
+
+def test_all_eight_pilot_answers_stay_full_exact_under_the_default_policy(
+        pilot_cases, pilot_selections):
+    """Acceptance gate 2: the default pilot search scope does not move."""
+    for uri, selection in pilot_selections.items():
+        pool = selection.pool
+        n = len(pilot_cases[uri].candidates)
+        assert pool.scope == SEARCH_FULL_EXACT
+        assert pool.global_optimality_claim is True
+        assert pool.pool_optimality_claim is True
+        assert pool.original_combination_count <= MAX_EXACT_COMBINATIONS
+        # The complete candidate count IS the search pool count.
+        assert pool.original_candidate_count == len(pool.positions) == n
+        assert pool.positions == tuple(range(n))
+        assert pool.enumerated_combination_count == pool.original_combination_count
+        assert pool.enumerated_combination_count == math.comb(n, K_DISTRACTORS)
+        # Nothing is rescued when nothing was excluded.
+        assert pool.rescued_positions == ()
+
+
+def test_full_exact_records_publish_every_required_provenance_field(
+        pilot_cases, pilot_selections):
+    """The scope block travels with the record, not with a separate report."""
+    required = {
+        "search_scope", "pool_policy", "original_candidate_count",
+        "pool_candidate_count", "original_combination_count",
+        "enumerated_combination_count", "pool_top_by_lrolesim",
+        "pool_evidence_rescue_limit", "evidence_rescue_count",
+        "evidence_rescued_candidate_ranks", "evidence_rescued_candidate_uris",
+        "max_pool_size", "max_exact_combinations", "global_optimality_claim",
+        "pool_optimality_claim",
+    }
+    for uri, selection in pilot_selections.items():
+        record = canonical_record(pilot_cases[uri], selection)
+        assert required <= set(record), sorted(required - set(record))
+        assert record["search_scope"] == SEARCH_FULL_EXACT
+        assert record["global_optimality_claim"] is True
+        assert record["pool_optimality_claim"] is True
+        assert record["evidence_rescue_count"] == 0
+        assert record["evidence_rescued_candidate_ranks"] == []
+        assert record["evidence_rescued_candidate_uris"] == []
+        assert record["pool_candidate_count"] == record["original_candidate_count"]
+        assert record["pool_policy"] == POOL_POLICY_NAME
+        assert "exact over the complete ranked candidate pool" in \
+            record["search_scope_note"]
+
+
+def test_forcing_the_default_pool_on_the_pilot_changes_only_the_claim(pilot_cases,
+                                                                      pilot_selections):
+    """M = 100 covers every pilot class whole, so the science must not move.
+
+    What DOES move is the claim: the same triple, the same rationale and the
+    same objective values are now exact only within the bounded pool, so
+    ``global_optimality_claim`` drops to False even though the bounded pool
+    happens to contain everything. The kernel reports the scope it searched
+    under, not the scope it could have got away with.
+    """
+    for uri, case in pilot_cases.items():
+        reference = pilot_selections[uri]
+        forced = select_distractors(case, pool_policy=PoolPolicy.for_pool_size(100),
+                                    force_pool=True)
+        assert forced.pool.scope == SEARCH_POOL_EXACT
+        assert forced.pool.global_optimality_claim is False
+        assert forced.pool.pool_optimality_claim is True
+        assert len(forced.pool.positions) == len(case.candidates)
+        assert forced.positions == reference.positions
+        assert forced.evidence_policy == reference.evidence_policy
+        assert forced.rationale.fact_identities == reference.rationale.fact_identities
+        assert forced.minimum_rationale_size == reference.minimum_rationale_size
+
+
+# --- B. the FULL_EXACT / POOL_EXACT boundary ---------------------------------
+
+
+def test_the_scope_boundary_sits_exactly_where_the_combination_budget_runs_out():
+    """Derived from C(n, 3), not hard-coded: the last n that fits, and the next.
+
+    C(107, 3) = 198,485 <= 200,000 < 204,156 = C(108, 3), so 107 candidates is
+    the largest class the kernel still searches exhaustively over the complete
+    ranked pool.
+    """
+    limit = DEFAULT_POOL_POLICY.max_exact_combinations
+    last_fitting = max(n for n in range(K_DISTRACTORS, 500)
+                       if math.comb(n, K_DISTRACTORS) <= limit)
+    assert (last_fitting, math.comb(last_fitting, K_DISTRACTORS)) == (107, 198_485)
+    assert math.comb(last_fitting + 1, K_DISTRACTORS) == 204_156 > limit
+
+    at_limit = build_candidate_pool(uniform_case(["L1"] * last_fitting))
+    over_limit = build_candidate_pool(uniform_case(["L1"] * (last_fitting + 1)))
+    assert at_limit.scope == SEARCH_FULL_EXACT
+    assert at_limit.enumerated_combination_count == 198_485
+    assert over_limit.scope == SEARCH_POOL_EXACT
+    assert over_limit.original_combination_count == 204_156
+    assert len(over_limit.positions) <= MAX_POOL_SIZE
+
+
+def test_a_case_smaller_than_k_yields_no_selection():
+    """Two candidates cannot make a triple, in either scope."""
+    tiny = uniform_case(["L1", "L1"])
+    assert build_candidate_pool(tiny).original_combination_count == 0
+    assert select_distractors(tiny) is None
+
+
+# --- C. a large synthetic class ----------------------------------------------
+
+
+def thousand_candidate_case(n=1000, facts=4):
+    """A deterministic already-classified case with ``n`` candidates.
+
+    Candidate i supports the Answer's proposition number ``i % facts`` and has
+    an observed alternative value for the rest, so coverage is non-uniform and
+    no single fact covers everybody.
+    """
+    return make_case([
+        make_fact(["NOT_COVERED" if i % facts == f else "L1" for i in range(n)],
+                  counterpart=f"http://example.org/o{f}")
+        for f in range(facts)])
+
+
+def test_a_thousand_candidates_switch_to_pool_exact_automatically():
+    """Acceptance gates 3, 5 and 6, on a class no exhaustive search could take."""
+    case = thousand_candidate_case()
+    selection = select_distractors(case)
+    pool = selection.pool
+
+    assert pool.original_candidate_count == 1000
+    assert pool.original_combination_count == math.comb(1000, 3) == 166_167_000
+    assert pool.scope == SEARCH_POOL_EXACT
+    assert len(pool.positions) <= MAX_POOL_SIZE
+    assert pool.enumerated_combination_count <= math.comb(MAX_POOL_SIZE, 3)
+    assert pool.global_optimality_claim is False
+    assert pool.pool_optimality_claim is True
+    # Every triple inside the pool was enumerated, and only those.
+    assert pool.enumerated_combination_count == \
+        math.comb(len(pool.positions), K_DISTRACTORS)
+    assert selection.feasible_combination_count <= pool.enumerated_combination_count
+    # Three orders of magnitude fewer combinations than the complete space.
+    assert pool.enumerated_combination_count < pool.original_combination_count / 1000
+    assert selection.candidate_count == 1000        # the COMPLETE pool, reported
+
+
+def test_the_pool_record_says_plainly_that_it_is_not_a_global_optimum():
+    """Acceptance gate 6, in the words that reach the paper.
+
+    The three phrases the specification forbids for a POOL_EXACT result may
+    appear only inside an explicit negation, so the guard checks the negation
+    rather than the absence of the phrase.
+    """
+    case = thousand_candidate_case()
+    record = canonical_record(case, select_distractors(case))
+    note = record["search_scope_note"]
+    assert record["global_optimality_claim"] is False
+    assert record["pool_optimality_claim"] is True
+    assert "exact within the bounded candidate pool" in note
+    assert "No optimality claim is made over candidates excluded from the pool" in note
+    for phrase in ("globally optimal", "global optimum", "exact over all candidates"):
+        for start in range(len(note)):
+            if note.startswith(phrase, start):
+                assert "NOT" in note[max(0, start - 10):start], phrase
+    assert "pool-construction heuristic" in record["evidence_rescue_note"]
+    assert "no part of the six-key" in record["evidence_rescue_note"]
+
+
+# --- D. evidence rescue below the LRoleSim cutoff ----------------------------
+
+
+def test_a_low_ranked_evidence_bearing_candidate_is_rescued():
+    """Acceptance gate 4, and the central justification for the rescue slots.
+
+    Ranks 1-20 all share the Answer's proposition and carry nothing usable. The
+    only three candidates with an observed alternative value sit at ranks 58,
+    59 and 60, far below any plausible LRoleSim cutoff.
+    """
+    case = rescue_case()
+    policy = PoolPolicy(max_exact_combinations=10, top_by_lrolesim=20,
+                        evidence_rescue=5, max_pool_size=25)
+    pool = build_candidate_pool(case, policy=policy)
+
+    assert pool.scope == SEARCH_POOL_EXACT
+    for position in (57, 58, 59):
+        assert position in pool.positions, "the evidence-bearing candidate was dropped"
+        assert position in pool.rescued_positions
+    # The rescue key put the three evidence-bearing candidates first; the two
+    # remaining slots went to the best-ranked of the evidence-free remainder.
+    assert pool.rescued_positions == (20, 21, 57, 58, 59)
+    assert len(pool.positions) == 25 <= policy.max_pool_size
+
+
+def test_a_top_only_pool_loses_the_evidence_and_produces_no_item_at_all():
+    """The counterfactual: same case, same pool size, rescue slots removed.
+
+    This is the scientific point of the mechanism. Without rescue the bounded
+    search reports an infeasibility the complete search does not have — not a
+    slightly worse item, no item.
+    """
+    case = rescue_case()
+    with_rescue = PoolPolicy(max_exact_combinations=10, top_by_lrolesim=20,
+                             evidence_rescue=5, max_pool_size=25)
+    top_only = PoolPolicy(max_exact_combinations=10, top_by_lrolesim=25,
+                          evidence_rescue=0, max_pool_size=25)
+
+    starved = build_candidate_pool(case, policy=top_only)
+    assert starved.positions == tuple(range(25))
+    assert starved.rescued_positions == ()
+    for position in (57, 58, 59):
+        assert position not in starved.positions
+    assert select_distractors(case, pool_policy=top_only, force_pool=True) is None
+
+    rescued = select_distractors(case, pool_policy=with_rescue, force_pool=True)
+    assert rescued is not None
+    assert rescued.positions == (57, 58, 59)
+    assert rescued.evidence_policy == "main-l1"
+    assert rescued.minimum_rationale_size == 1
+    # And the complete FULL_EXACT search agrees, which is what makes the
+    # rescued pool the right bounded approximation here rather than a lucky one.
+    assert select_distractors(case).positions == (57, 58, 59)
+
+
+def test_the_rescue_key_is_candidate_local_and_orders_evidence_first():
+    """It reads one candidate at a time; no pair and no triple is inspected."""
+    case = rescue_case()
+    with_evidence = candidate_rescue_key(case, 59)
+    without = candidate_rescue_key(case, 30)
+    assert with_evidence < without                      # L1 beats NOT_COVERED
+    assert with_evidence[:3] == (-LEVEL_STRENGTH["L1"], 0, -1)
+    assert without[0] == -LEVEL_STRENGTH["NOT_COVERED"] == 0
+    # Two evidence-free candidates differ only by the rank and URI tie-breaks.
+    assert candidate_rescue_key(case, 30)[:6] == candidate_rescue_key(case, 31)[:6]
+    assert candidate_rescue_key(case, 30)[6:] == (31, "http://example.org/c30")
+
+
+def test_l1_bearing_candidates_outrank_l0_only_candidates_for_rescue():
+    """L0 may be observed, but it must never outrank an observed alternative."""
+    levels = ["NOT_COVERED"] * 40
+    levels[30] = "L0"
+    levels[35] = "L1"
+    case = uniform_case(levels)
+    assert candidate_rescue_key(case, 35) < candidate_rescue_key(case, 30)
+    assert candidate_rescue_key(case, 30) < candidate_rescue_key(case, 31)
+    policy = PoolPolicy(max_exact_combinations=1, top_by_lrolesim=10,
+                        evidence_rescue=2, max_pool_size=12)
+    assert build_candidate_pool(case, policy=policy).rescued_positions == (30, 35)
+
+
+def test_not_covered_gives_no_rescue_coverage_at_all():
+    """A candidate that supports every Answer proposition is rescued last."""
+    case = rescue_case(n=40, evidence_positions=(39,))
+    keys = [candidate_rescue_key(case, p) for p in range(40)]
+    assert keys[39] == min(keys)
+    assert all(key[0] == 0 for p, key in enumerate(keys) if p != 39)
+
+
+# --- E. determinism ----------------------------------------------------------
+
+
+def test_the_bounded_pool_is_immune_to_the_callers_candidate_ordering():
+    """Rescue determinism: shuffle the input, get the identical canonical pool."""
+    case = rescue_case()
+    policy = PoolPolicy(max_exact_combinations=10, top_by_lrolesim=20,
+                        evidence_rescue=5, max_pool_size=25)
+    reference = build_candidate_pool(case, policy=policy)
+    for seed in range(5):
+        other = shuffled_case(case, seed)
+        pool = build_candidate_pool(other, policy=policy)
+        assert pool.positions == reference.positions
+        assert pool.rescued_positions == reference.rescued_positions
+        assert [other.candidates[p].uri for p in pool.rescued_positions] == \
+            [case.candidates[p].uri for p in reference.rescued_positions]
+
+
+def test_equal_rescue_keys_resolve_by_original_rank_then_by_canonical_uri():
+    """The last two components exist so that two runs can never disagree."""
+    # Same rank, same (empty) evidence: only the canonical URI can separate them.
+    candidates = [Candidate(rank=1, score=0.9, uri="http://example.org/b"),
+                  Candidate(rank=1, score=0.9, uri="http://example.org/a"),
+                  Candidate(rank=2, score=0.8, uri="http://example.org/c"),
+                  Candidate(rank=3, score=0.7, uri="http://example.org/d")]
+    case = build_case("http://example.org/A", "A", candidates,
+                      [make_fact(["NOT_COVERED"] * 4)])
+    assert [c.uri for c in case.candidates] == ["http://example.org/a",
+                                                "http://example.org/b",
+                                                "http://example.org/c",
+                                                "http://example.org/d"]
+    keys = [candidate_rescue_key(case, p) for p in range(4)]
+    assert keys[0][:6] == keys[1][:6] and keys[0][6] == keys[1][6] == 1
+    assert keys[0] < keys[1]                       # ...a before ...b, by URI
+    policy = PoolPolicy(max_exact_combinations=1, top_by_lrolesim=1,
+                        evidence_rescue=2, max_pool_size=3)
+    assert build_candidate_pool(case, policy=policy).rescued_positions == (1, 2)
+
+
+# --- F. exactness INSIDE the bounded pool ------------------------------------
+
+
+def mixed_case(seed, n=12, facts=5):
+    """A deterministic already-classified case with varied evidence and quality."""
+    rng = random.Random(seed)
+    return make_case([
+        make_fact([rng.choice(["NOT_COVERED", "L0", "L1", "L1"]) for _ in range(n)],
+                  counterpart=f"http://example.org/o{f}",
+                  tier=rng.randint(1, 4), label_length=rng.randint(3, 30),
+                  tokens=rng.randint(1, 5), soft_leak=rng.random() < 0.2)
+        for f in range(facts)])
+
+
+def brute_force_best_combination(case, positions):
+    """The winner over ``positions``, by independent exhaustive enumeration.
+
+    Deliberately written the slow, obvious way — first feasible policy wins,
+    then the smallest six-key objective tuple over every triple — so that it
+    can disagree with the kernel if the kernel ever stops being exact.
+    """
+    for policy in POLICY_ORDER:
+        scored = []
+        for triple in itertools.combinations(positions, K_DISTRACTORS):
+            ranked = rank_minimum_rationales(case, triple, policy)
+            if ranked is None:
+                continue
+            size, _, rationales = ranked
+            scored.append((combination_objective_key(case, triple, size, rationales[0]),
+                           triple, rationales[0]))
+        if scored:
+            return (policy, *min(scored, key=lambda row: row[0])[1:])
+    return None
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_the_kernel_is_exact_inside_its_bounded_pool(seed):
+    """Acceptance gate 5. This checks POOL exactness, NOT global exactness.
+
+    The forced pool of six candidates is deliberately smaller than the twelve
+    available, so the brute-force reference enumerates the SAME bounded pool.
+    Whether the pool contained the globally best triple is a different question
+    and is not asserted here — that is precisely the claim POOL_EXACT declines
+    to make.
+    """
+    case = mixed_case(seed)
+    policy = PoolPolicy.for_pool_size(6)
+    selection = select_distractors(case, pool_policy=policy, force_pool=True)
+    pool = build_candidate_pool(case, policy=policy, force_pool=True)
+    assert len(pool.positions) == 6 < len(case.candidates)
+
+    expected = brute_force_best_combination(case, pool.positions)
+    if expected is None:
+        assert selection is None
+        return
+    policy_name, positions, rationale = expected
+    assert selection is not None
+    assert selection.evidence_policy == policy_name
+    assert selection.positions == positions
+    assert selection.rationale.fact_identities == rationale.fact_identities
+    assert selection.pool.enumerated_combination_count == math.comb(6, K_DISTRACTORS)
+    assert selection.feasible_combination_count <= math.comb(6, K_DISTRACTORS)
+
+
+# --- G. the anonymity denominator stays on the COMPLETE ranked pool ----------
+
+
+def test_anonymity_still_counts_candidates_outside_the_bounded_search_pool():
+    """Acceptance gate 8. Search scope and anonymity scope are different things.
+
+    Candidates 11 and 12 support the selected rationale's proposition and sit
+    outside the bounded search pool. They must still be counted: shrinking the
+    anonymity denominator to the search pool would make a bounded search look
+    like a complete candidate class and would inflate every anonymity figure in
+    the paper.
+    """
+    levels = ["L1"] * 10 + ["NOT_COVERED", "NOT_COVERED"]
+    case = uniform_case(levels)
+    policy = PoolPolicy.for_pool_size(6)
+    selection = select_distractors(case, pool_policy=policy, force_pool=True)
+    pool = selection.pool
+
+    assert pool.scope == SEARCH_POOL_EXACT
+    assert len(pool.positions) == 6 and len(case.candidates) == 12
+    assert 10 not in pool.positions and 11 not in pool.positions
+
+    rationale = selection.rationale
+    assert rationale.local_candidate_pool_anonymity_count == 3      # Answer + 10 + 11
+    assert rationale.local_candidate_pool_anonymity_ratio == pytest.approx(3 / 13)
+    assert rationale.direct_identifier_flag is False
+    # The denominator is 1 + the COMPLETE ranked pool, never 1 + the search pool.
+    assert rationale.local_candidate_pool_anonymity_ratio != pytest.approx(3 / 7)
+    # And the same numbers come out of the standalone function, over all 12.
+    assert local_pool_anonymity(case, rationale.fact_indices) == \
+        (3, 3 / 13, False)
+    record = canonical_record(case, selection)
+    assert record["local_candidate_pool_anonymity_count"] == 3
+    assert record["original_candidate_count"] == 12
+    assert record["pool_candidate_count"] == 6
+
+
+# --- H. pool policy validation ------------------------------------------------
+
+
+def test_for_pool_size_scales_the_inherited_three_to_one_split():
+    for size, top, rescue in ((25, 19, 6), (50, 38, 12), (75, 57, 18), (100, 75, 25)):
+        policy = PoolPolicy.for_pool_size(size)
+        assert (policy.top_by_lrolesim, policy.evidence_rescue) == (top, rescue)
+        assert policy.top_by_lrolesim == math.ceil(3 * size / 4)
+        assert policy.top_by_lrolesim + policy.evidence_rescue == size
+        assert policy.max_pool_size == size
+        assert policy.name == f"{POOL_POLICY_NAME}_M{size}"
+        assert policy.max_exact_combinations == MAX_EXACT_COMBINATIONS
+    # M = 100 must reproduce the inherited default numbers exactly.
+    default_sized = PoolPolicy.for_pool_size(MAX_POOL_SIZE)
+    assert (default_sized.top_by_lrolesim, default_sized.evidence_rescue) == \
+        (POOL_TOP_BY_LROLESIM, POOL_EVIDENCE_RESCUE)
+
+
+@pytest.mark.parametrize("size", ABLATION_POOL_SIZES)
+def test_a_bounded_pool_never_exceeds_its_configured_maximum(size):
+    case = uniform_case(["L1"] * 500)
+    pool = build_candidate_pool(case, policy=PoolPolicy.for_pool_size(size),
+                                force_pool=True)
+    assert len(pool.positions) == size
+    assert len(pool.rescued_positions) <= PoolPolicy.for_pool_size(size).evidence_rescue
+    assert pool.enumerated_combination_count == math.comb(size, K_DISTRACTORS)
+
+
+@pytest.mark.parametrize("kwargs,message", [
+    ({"top_by_lrolesim": 80, "evidence_rescue": 25, "max_pool_size": 100},
+     "exceeds max_pool_size"),
+    ({"top_by_lrolesim": -1}, "negative"),
+    ({"evidence_rescue": -5}, "negative"),
+    ({"max_pool_size": -1}, "negative"),
+    ({"max_exact_combinations": -1}, "negative"),
+    ({"top_by_lrolesim": 2, "evidence_rescue": 0, "max_pool_size": 2}, "below k"),
+])
+def test_an_incoherent_pool_policy_is_rejected_at_construction(kwargs, message):
+    """A silently clamped policy would publish a search that never happened."""
+    with pytest.raises(ValueError) as error:
+        PoolPolicy(**kwargs)
+    assert message in str(error.value)
+    assert POOL_POLICY_NAME in str(error.value)
+
+
+# --- I. the published pool ablation -------------------------------------------
+
+
+def ablation_rows_from_the_kernel(cases, selections):
+    """Recompute every row of the published ablation, from the kernel itself."""
+    rows = []
+    for uri in sorted(cases):
+        case, reference = cases[uri], selections[uri]
+        for size in ABLATION_POOL_SIZES:
+            policy = PoolPolicy.for_pool_size(size)
+            forced = select_distractors(case, pool_policy=policy, force_pool=True)
+            pool = build_candidate_pool(case, policy=policy, force_pool=True)
+            rows.append({
+                "answer_uri": uri,
+                "display_label": case.display_label,
+                "reference_search_scope": reference.pool.scope,
+                "original_candidate_count": str(len(case.candidates)),
+                "forced_pool_size": str(size),
+                "top_limit": str(policy.top_by_lrolesim),
+                "rescue_limit": str(policy.evidence_rescue),
+                "actual_pool_candidate_count": str(len(pool.positions)),
+                "evidence_rescue_count": str(len(pool.rescued_positions)),
+                "reference_policy": reference.evidence_policy,
+                "pool_policy_reached": forced.evidence_policy,
+                "reference_distractor_ranks":
+                    "|".join(str(d.rank) for d in reference.distractors),
+                "pool_distractor_ranks":
+                    "|".join(str(d.rank) for d in forced.distractors),
+                "reference_rationale_facts":
+                    render_facts(reference.rationale.fact_identities),
+                "pool_rationale_facts":
+                    render_facts(forced.rationale.fact_identities),
+                "same_distractor_selection":
+                    str([d.uri for d in forced.distractors] ==
+                        [d.uri for d in reference.distractors]),
+                "same_rationale":
+                    str(sorted(forced.rationale.fact_identities) ==
+                        sorted(reference.rationale.fact_identities)),
+                "same_policy":
+                    str(forced.evidence_policy == reference.evidence_policy),
+                "global_optimality_claim": str(forced.pool.global_optimality_claim),
+                "pool_optimality_claim": str(forced.pool.pool_optimality_claim),
+            })
+    return rows
+
+
+@pytest.fixture(scope="module")
+def ablation(pilot_cases, pilot_selections):
+    return ablation_rows_from_the_kernel(pilot_cases, pilot_selections)
+
+
+def test_published_pool_ablation_csv_matches_the_kernel(ablation):
+    """The published CSV is verified against what the kernel actually produces."""
+    published = list(csv.DictReader(ABLATION_CSV.read_text("utf-8").splitlines()))
+    assert len(published) == len(ablation) == 8 * len(ABLATION_POOL_SIZES)
+    for row, expected in zip(published, ablation):
+        assert row == expected, (row["display_label"], row["forced_pool_size"])
+
+
+def test_every_forced_pool_size_reproduces_the_full_exact_pilot_selection(ablation):
+    """On these eight Answers, no forced pool size changed the science.
+
+    This is a PILOT DIAGNOSTIC on eight Answers whose classes hold 11 to 49
+    candidates. It cannot validate M = 100 for the 100-Answer corpus, and the
+    default is not chosen from it.
+    """
+    for row in ablation:
+        assert row["reference_search_scope"] == SEARCH_FULL_EXACT
+        assert row["same_distractor_selection"] == "True", row["display_label"]
+        assert row["same_rationale"] == "True", row["display_label"]
+        assert row["same_policy"] == "True", row["display_label"]
+        # Every forced row is POOL_EXACT, so no forced row may claim globality.
+        assert row["global_optimality_claim"] == "False"
+        assert row["pool_optimality_claim"] == "True"
+        assert int(row["actual_pool_candidate_count"]) <= int(row["forced_pool_size"])
+
+
+def test_the_smallest_forced_pool_actually_bounds_the_larger_pilot_classes(ablation):
+    """M = 25 is a real restriction for the three largest pilot classes."""
+    bounded = {row["display_label"] for row in ablation
+               if int(row["actual_pool_candidate_count"]) <
+               int(row["original_candidate_count"])}
+    assert bounded == {"Aristotle", "Plato", "Carbon"}
+    for row in ablation:
+        if row["display_label"] == "Carbon" and row["forced_pool_size"] == "25":
+            assert (row["original_candidate_count"],
+                    row["actual_pool_candidate_count"],
+                    row["evidence_rescue_count"]) == ("49", "25", "6")
