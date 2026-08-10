@@ -23,16 +23,39 @@ Five groups:
 * **Albert Einstein is not fabricated** — an Answer the frozen runs never
   processed produces a clear failure, never a synthetic case.
 
-No network, no pinned-KG load, no model. Every input is a frozen file under
-``outputs/``.
+Phase B1 step 2 adds a sixth group, ``B1.2-T1`` … ``B1.2-T11`` at the end of this
+file: the Answer's own one-hop facts, reconstructed from the **pinned local KG**
+and given the frozen R1 quality/leakage fields.
+
+WHY THE B1.2 GROUP LOADS THE REAL 1.2 GB GRAPH BY DEFAULT
+---------------------------------------------------------
+``tests/test_kg_loader.py`` gates its one real-graph test behind
+``MCQ_JOURNAL2_LOAD_REAL_KG=1``, because there the load is a bonus check on a
+loader whose behaviour is already covered by small synthetic fixtures. Here it is
+the opposite: the acceptance gate of B1.2 *is* the measurement on the pinned
+snapshot — 9 OUT, 57 IN, 66 distinct facts, 60 counterparts, 48 eligible, 17
+eligible κ, 41 eligible with a template — and a synthetic graph could reproduce
+none of it. A gate that skips by default is not a gate, so this group runs by
+default and is skipped only when the pinned file is absent or when
+``MCQ_JOURNAL2_SKIP_REAL_KG=1`` is set explicitly.
+
+The cost is real and is paid once: the graph is loaded by a single module-scoped
+fixture (about 75 s and about 12 GB RSS on the development machine), every B1.2
+test reads that one object, and ``B1.2-T9`` asserts the load count is exactly 1.
+
+Still no network and no model. Apart from that single pinned-graph read, every
+input is a frozen file under ``outputs/``.
 """
 
 from __future__ import annotations
 
 import ast
+import contextlib
 import copy
 import hashlib
 import json
+import os
+import socket
 import sys
 from pathlib import Path
 
@@ -56,6 +79,7 @@ from mcq_inputs import (  # noqa: E402
     PINNED_LROLESIM_EXECUTION,
     AnswerNotFoundError,
     InputContractError,
+    answer_facts_from_local_kg,
     case_from_frozen_records,
     case_from_records,
     find_evidence_records,
@@ -64,6 +88,11 @@ from mcq_inputs import (  # noqa: E402
     read_jsonl,
     validate_fact_alignment,
 )
+# The frozen upstream implementations, imported HERE so that a few B1.2 pins can
+# be stated on the rule itself (a leakage pair that is not in the pinned graph, a
+# chemical display label) without the production module growing a copy of either.
+from kg.loader import load_local_kg  # noqa: E402
+from rationale_v3.quality import assess_fact_quality, load_quality_policy  # noqa: E402
 
 # T2. The reference reader lives in the kernel's own test module. Importing it
 # HERE is the whole point of the equivalence test; the production module must
@@ -92,6 +121,50 @@ SILICON = "http://dbpedia.org/resource/Silicon"
 SULFURIC_ACID = "http://dbpedia.org/resource/Sulfuric_acid"
 # Albert Einstein was never processed by either frozen run.
 EINSTEIN = "http://dbpedia.org/resource/Albert_Einstein"
+CARBON = "http://dbpedia.org/resource/Carbon"
+
+# --- B1.2: the pinned local KG and the frozen R1 quality policy -------------
+PINNED_KG = ROOT / "data" / "infobox.pickle_EnglishVersion_EntityType"
+# Pinned so a silent rebuild cannot pass: the graph build assigns node indices by
+# iterating a Python set, so a rebuilt file renumbers every node.
+PINNED_KG_SHA256 = "e230c5b95e20093631697624d9c46f30a14081b3f415d5027ffaf313bdbbea1b"
+QUALITY_POLICY_PATH = (ROOT / "src" / "rationale_v3" / "policies"
+                       / "predicate_policy.json")
+
+#: The B0-audit measurements of Albert Einstein, independently taken from this
+#: same pinned snapshot. They are TEST EXPECTATIONS only: the production function
+#: hard-codes none of them and derives every one from the graph.
+EINSTEIN_EXPECTED = {
+    "one_hop_out_facts": 9,
+    "one_hop_in_facts": 57,
+    "distinct_one_hop_facts": 66,
+    "distinct_counterpart_entities": 60,
+    "eligible_after_frozen_r1_hard_filter": 48,
+    "eligible_predicate_direction_keys": 17,
+    "eligible_with_registered_template": 41,
+}
+
+#: The eleven FactQuality fields, which is exactly what B1.2-T5 compares against
+#: the frozen R1 ``answer_fact_evidence[].quality`` records.
+QUALITY_FIELDS = ("predicate_uri", "direction", "counterpart_uri",
+                  "display_label", "eligible", "soft_leak", "verbalizable",
+                  "pedagogical_tier", "label_length", "token_count",
+                  "template_id")
+
+#: Every pinned-graph load this module performs, appended by the fixture below.
+#: B1.2-T9 requires exactly one: the graph is 1.2 GB and roughly 12 GB resident.
+PINNED_KG_LOADS: list[str] = []
+
+#: Outbound connection attempts recorded while the real Einstein extraction ran.
+#: B1.2-T9 requires this to stay empty.
+NETWORK_ATTEMPTS: list[str] = []
+
+requires_pinned_kg = pytest.mark.skipif(
+    not PINNED_KG.is_file() or os.environ.get("MCQ_JOURNAL2_SKIP_REAL_KG") == "1",
+    reason=(f"the pinned local KG {PINNED_KG.name} is unavailable, or "
+            f"MCQ_JOURNAL2_SKIP_REAL_KG=1 was set; the B1.2 acceptance gate "
+            f"cannot be measured on a synthetic graph"),
+)
 
 
 # --------------------------------------------------------------------------
@@ -258,8 +331,16 @@ def test_the_production_adapter_equals_the_reference_reader(production_cases):
 
 
 def test_the_production_module_imports_no_test_module_and_no_client():
-    """One AST scan covers test coupling, network clients and NLP toolkits."""
-    allowed = {"__future__", "json", "pathlib", "typing", "mcq_core"}
+    """One AST scan covers test coupling, network clients and NLP toolkits.
+
+    B1.2 widened this set by exactly two packages, both frozen and both offline:
+    ``rationale_v3`` for the R1 quality/leakage assessor and the R1 URI
+    normalizer, and ``selection`` for the corrected Prompt-8D one-hop edge
+    enumeration. ``kg`` is deliberately still absent — the adapter receives an
+    already-loaded graph and must never learn to resolve or open one itself.
+    """
+    allowed = {"__future__", "json", "pathlib", "typing", "mcq_core",
+               "rationale_v3", "selection"}
     tree = ast.parse(INPUTS_SOURCE.read_text("utf-8"))
     imported = set()
     for node in ast.walk(tree):
@@ -271,11 +352,18 @@ def test_the_production_module_imports_no_test_module_and_no_client():
 
 
 def test_no_forbidden_module_is_named_in_the_adapter_source():
-    """Explicit list, so a future edit that adds one fails loudly."""
+    """Explicit list, so a future edit that adds one fails loudly.
+
+    ``rationale_v3`` left this list in B1.2 because the adapter now legitimately
+    calls the frozen R1 quality assessor; the AST test above is what keeps that
+    import narrow. Every other name stays banned, and the serialization-format
+    name in particular: B1.2 reads an already-loaded graph object and must never
+    acquire its own reader for the pinned local-KG file.
+    """
     forbidden = ["requests", "urllib", "http.client", "socket", "SPARQLWrapper",
                  "rdflib", "spacy", "nltk", "wordnet", "gensim", "torch",
                  "transformers", "sentence_transformers", "sklearn", "openai",
-                 "anthropic", "test_mcq_core", "rationale_v3", "pickle"]
+                 "anthropic", "test_mcq_core", "pickle"]
     text = INPUTS_SOURCE.read_text("utf-8")
     assert [name for name in forbidden if name in text] == []
 
@@ -651,3 +739,556 @@ def test_sulfuric_acid_has_a_ranking_row_but_no_evidence_and_is_refused():
     with pytest.raises(AnswerNotFoundError):
         case_from_frozen_records(SULFURIC_ACID, handoff_path=HANDOFF,
                                  evidence_path=EVIDENCE)
+
+
+# ==========================================================================
+# PHASE B1 STEP 2 — the Answer's own facts, read from the pinned local KG
+# ==========================================================================
+#
+# What is NOT tested here, because B1.2 must not do it: no evidence level, no
+# exclusion basis, no granularity risk, no candidate roster, no class selection,
+# no member retrieval, no LRoleSim, no AnswerCase for Albert Einstein.
+
+
+@contextlib.contextmanager
+def no_network(recorder):
+    """Refuse and record every outbound connection attempt inside the block.
+
+    A guard that FAILS makes "zero network attempts" a checked property rather
+    than an assurance, and the recorder is the published evidence.
+    """
+    saved = (socket.socket.connect, socket.socket.connect_ex,
+             socket.create_connection)
+
+    def blocked(address):
+        recorder.append(repr(address))
+        raise AssertionError(
+            f"outbound connection to {address!r} refused: B1.2 reads only the "
+            f"pinned local KG and frozen local policy files")
+
+    socket.socket.connect = lambda self, address, *a, **k: blocked(address)
+    socket.socket.connect_ex = lambda self, address, *a, **k: blocked(address)
+    socket.create_connection = lambda address, *a, **k: blocked(address)
+    try:
+        yield recorder
+    finally:
+        (socket.socket.connect, socket.socket.connect_ex,
+         socket.create_connection) = saved
+
+
+@pytest.fixture(scope="module")
+def pinned_kg():
+    """The pinned local KG, loaded ONCE for the whole module.
+
+    ``verify_sha256`` pins the run to one exact build rather than to whatever
+    file currently has that name; a mismatch raises instead of quietly measuring
+    a different graph. Loading is delegated to ``kg.loader``, which is the only
+    module allowed to open the file — the adapter under test never does.
+    """
+    PINNED_KG_LOADS.append(str(PINNED_KG))
+    return load_local_kg(PINNED_KG, verify_sha256=PINNED_KG_SHA256)
+
+
+@pytest.fixture(scope="module")
+def quality_policy():
+    """The frozen R1 §9 policy: predicates, objects, leakage thresholds, templates."""
+    return load_quality_policy(QUALITY_POLICY_PATH)
+
+
+@pytest.fixture(scope="module")
+def einstein_facts(pinned_kg, quality_policy):
+    """Albert Einstein's complete one-hop fact inventory, extracted ONCE.
+
+    The extraction runs inside the socket guard, so B1.2-T9 is a property of the
+    real acceptance-gate run rather than of a separate toy call.
+    """
+    with no_network(NETWORK_ATTEMPTS):
+        return answer_facts_from_local_kg(
+            EINSTEIN, local_kg=pinned_kg, quality_policy=quality_policy)
+
+
+def by_identity(facts):
+    return {fact.identity: fact for fact in facts}
+
+
+def frozen_r1_quality_by_answer():
+    """{answer_uri: {(p, direction, counterpart): frozen quality record}}.
+
+    Read from the frozen R1 evidence audit, which is the ORACLE here and never an
+    input to the reconstruction being tested.
+    """
+    frozen: dict = {}
+    for record in read_jsonl(EVIDENCE):
+        if record.get("record_type") != "answer_fact_evidence":
+            continue
+        quality = record["quality"]
+        frozen.setdefault(record["answer_uri"], {})[
+            (quality["predicate_uri"], quality["direction"],
+             quality["counterpart_uri"])] = quality
+    return frozen
+
+
+# --------------------------------------------------------------------------
+# B1.2-T1. The Albert Einstein acceptance gate — all seven measured counts
+# --------------------------------------------------------------------------
+
+
+@requires_pinned_kg
+def test_b12_t1_einstein_reproduces_every_b0_audit_count(einstein_facts):
+    """The seven numbers the B0 audit measured on this same pinned snapshot.
+
+    If the file on disk ever produces different numbers, this test fails and the
+    expectations are NOT to be edited: the correct response is to report which
+    fact identities differ, because the snapshot, not the arithmetic, moved.
+    """
+    eligible = [fact for fact in einstein_facts if fact.eligible]
+    measured = {
+        "one_hop_out_facts": sum(1 for f in einstein_facts if f.direction == "OUT"),
+        "one_hop_in_facts": sum(1 for f in einstein_facts if f.direction == "IN"),
+        "distinct_one_hop_facts": len(einstein_facts),
+        "distinct_counterpart_entities": len({f.counterpart_uri
+                                              for f in einstein_facts}),
+        "eligible_after_frozen_r1_hard_filter": len(eligible),
+        "eligible_predicate_direction_keys": len({f.predicate_direction_key
+                                                  for f in eligible}),
+        "eligible_with_registered_template": sum(1 for f in eligible
+                                                 if f.verbalizable),
+    }
+    assert measured == EINSTEIN_EXPECTED
+
+
+@requires_pinned_kg
+def test_b12_t1_the_production_function_hard_codes_none_of_the_counts():
+    """The seven numbers are test expectations, never constants in the module."""
+    text = INPUTS_SOURCE.read_text("utf-8")
+    tree = ast.parse(text)
+    literals = {node.value for node in ast.walk(tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, int)
+                and not isinstance(node.value, bool)}
+    assert literals & set(EINSTEIN_EXPECTED.values()) == set()
+
+
+@requires_pinned_kg
+def test_b12_t1_the_complete_inventory_keeps_its_ineligible_facts(einstein_facts):
+    """66 observed, 48 eligible: the other 18 are REPORTED, not dropped.
+
+    A reviewer can only check that the hard filter removed the right facts if the
+    facts it removed are still in the inventory with ``eligible`` False.
+    """
+    ineligible = [fact for fact in einstein_facts if not fact.eligible]
+    assert len(einstein_facts) == 66
+    assert len(ineligible) == 18
+    assert all(fact.display_label for fact in ineligible)
+
+
+@requires_pinned_kg
+def test_b12_t1_external_url_and_web_archive_facts_are_ineligible(einstein_facts):
+    """The Eisaku-Satō Web-Archive failure class, pinned on a second Answer."""
+    facts = by_identity(einstein_facts)
+    web_archive = ("http://dbpedia.org/property/url", "OUT",
+                   "https://web.archive.org/web/20110811112756/"
+                   "http:/www.alberteinstein.info")
+    external = ("http://dbpedia.org/property/thesisUrl", "OUT",
+                "http://e-collection.library.ethz.ch/eserv/eth:30378/"
+                "eth-30378-01.pdf")
+    assert facts[web_archive].eligible is False
+    assert facts[external].eligible is False
+
+
+@requires_pinned_kg
+def test_b12_t1_answer_lexical_leaks_are_ineligible_and_clean_facts_are_not(
+        einstein_facts):
+    """"Bust of Albert Einstein" hands the learner the Answer; "Mileva Marić" does not."""
+    facts = by_identity(einstein_facts)
+    leaking = [
+        ("http://dbpedia.org/property/subject", "IN",
+         "http://dbpedia.org/resource/Bust_of_Albert_Einstein"),
+        ("http://dbpedia.org/property/spouse", "IN",
+         "http://dbpedia.org/resource/Elsa_Einstein"),
+        ("http://dbpedia.org/property/children", "OUT",
+         "http://dbpedia.org/resource/Hans_Albert_Einstein"),
+    ]
+    clean = [
+        ("http://dbpedia.org/property/spouse", "OUT",
+         "http://dbpedia.org/resource/Mileva_Marić"),
+        ("http://dbpedia.org/property/doctoralAdvisor", "OUT",
+         "http://dbpedia.org/resource/Alfred_Kleiner"),
+        ("http://dbpedia.org/property/influences", "IN",
+         "http://dbpedia.org/resource/Karl_Popper"),
+    ]
+    assert [facts[key].eligible for key in leaking] == [False, False, False]
+    assert [facts[key].eligible for key in clean] == [True, True, True]
+
+
+# --------------------------------------------------------------------------
+# B1.2-T2. Direction safety — IN and OUT are never merged
+# --------------------------------------------------------------------------
+
+
+@requires_pinned_kg
+def test_b12_t2_out_and_in_are_counted_independently(einstein_facts):
+    """9 and 57, derived separately and never as one merged neighbourhood."""
+    out = [fact for fact in einstein_facts if fact.direction == "OUT"]
+    incoming = [fact for fact in einstein_facts if fact.direction == "IN"]
+    assert len(out) == 9
+    assert len(incoming) == 57
+    assert len(out) + len(incoming) == len(einstein_facts) == 66
+    assert {fact.direction for fact in einstein_facts} == {"IN", "OUT"}
+
+
+@requires_pinned_kg
+def test_b12_t2_one_predicate_in_both_directions_is_two_different_facts(
+        einstein_facts):
+    """``dbp:children`` reaches ``dbr:Einstein_family`` in BOTH directions.
+
+    Same predicate, same counterpart, opposite direction: two rows, two distinct
+    canonical identities, and two independently assessed quality records. A
+    reconstruction that keyed on the predicate alone — or on (predicate,
+    counterpart) — would report one fact here and silently lose the other.
+    """
+    children = "http://dbpedia.org/property/children"
+    family = "http://dbpedia.org/resource/Einstein_family"
+    facts = by_identity(einstein_facts)
+    assert (children, "IN", family) in facts
+    assert (children, "OUT", family) in facts
+    # Same κ predicate, different κ: the two are never the same rationale slot.
+    assert facts[(children, "IN", family)].predicate_direction_key != \
+        facts[(children, "OUT", family)].predicate_direction_key
+    # And the two directions genuinely carry different upstream verbalizations.
+    assert facts[(children, "IN", family)].template_id != \
+        facts[(children, "OUT", family)].template_id
+
+    # A second, independent occurrence, to prove the first is not a special case.
+    advisors = "http://dbpedia.org/property/academicAdvisors"
+    both = {fact.direction for fact in einstein_facts
+            if fact.predicate_uri == advisors}
+    assert both == {"IN", "OUT"}
+
+
+@requires_pinned_kg
+def test_b12_t2_a_counterpart_reached_in_both_directions_is_one_entity(
+        einstein_facts):
+    """66 facts over 60 counterparts: the six extra facts are re-reached entities."""
+    counterparts = {fact.counterpart_uri for fact in einstein_facts}
+    assert len(counterparts) == 60
+    assert len(einstein_facts) - len(counterparts) == 6
+
+
+# --------------------------------------------------------------------------
+# B1.2-T3 and B1.2-T4. Uniqueness and deterministic order
+# --------------------------------------------------------------------------
+
+
+@requires_pinned_kg
+def test_b12_t3_no_canonical_fact_identity_appears_twice(einstein_facts):
+    """``(predicate_uri, direction, counterpart_uri)`` is unique by construction."""
+    identities = [fact.identity for fact in einstein_facts]
+    assert len(set(identities)) == len(identities) == 66
+
+
+@requires_pinned_kg
+def test_b12_t4_two_independent_extractions_are_the_same_ordered_tuple(
+        pinned_kg, quality_policy):
+    """Not merely the same set: the same tuple, element for element, in order."""
+    first = answer_facts_from_local_kg(EINSTEIN, local_kg=pinned_kg,
+                                       quality_policy=quality_policy)
+    second = answer_facts_from_local_kg(EINSTEIN, local_kg=pinned_kg,
+                                        quality_policy=quality_policy)
+    assert first == second
+    assert [fact.identity for fact in first] == [fact.identity for fact in second]
+
+
+@requires_pinned_kg
+def test_b12_t4_the_order_is_ascending_predicate_direction_counterpart(
+        einstein_facts):
+    """The canonical order is the sorted identity, with nothing else mixed in."""
+    identities = [fact.identity for fact in einstein_facts]
+    assert identities == sorted(identities)
+
+
+# --------------------------------------------------------------------------
+# B1.2-T5. Frozen R1 quality semantics, on the existing eight-Answer pilot
+# --------------------------------------------------------------------------
+
+
+@requires_pinned_kg
+def test_b12_t5_the_pilot_quality_records_are_reproduced_exactly(pinned_kg,
+                                                                 quality_policy):
+    """All eight R1-ready pilot Answers, all eleven quality fields, no tolerance.
+
+    This is what makes the Einstein numbers trustworthy: the same function, the
+    same graph and the same policy reproduce 582 already-published quality
+    records exactly. A difference here would be reported, never special-cased —
+    the function must not learn to imitate stale output for one Answer.
+    """
+    frozen = frozen_r1_quality_by_answer()
+    assert len(frozen) == 8
+
+    differences: list = []
+    compared = 0
+    for answer_uri in sorted(frozen):
+        local = by_identity(answer_facts_from_local_kg(
+            answer_uri, local_kg=pinned_kg, quality_policy=quality_policy))
+        expected = frozen[answer_uri]
+        differences += [("only in frozen R1", answer_uri, key)
+                        for key in sorted(set(expected) - set(local))]
+        differences += [("only in local reconstruction", answer_uri, key)
+                        for key in sorted(set(local) - set(expected))]
+        for key in sorted(set(expected) & set(local)):
+            fact = local[key]
+            for name in QUALITY_FIELDS:
+                compared += 1
+                if getattr(fact, name) != expected[key][name]:
+                    differences.append(
+                        (answer_uri, key, name, getattr(fact, name),
+                         expected[key][name]))
+    assert differences == []
+    assert compared == 582 * len(QUALITY_FIELDS)
+
+
+@requires_pinned_kg
+def test_b12_t5_the_pilot_answers_keep_their_in_out_split(pinned_kg,
+                                                          quality_policy):
+    """Silicon has 3 facts and Carbon 16, all IN — the R1 pilot's own shape."""
+    silicon = answer_facts_from_local_kg(SILICON, local_kg=pinned_kg,
+                                         quality_policy=quality_policy)
+    carbon = answer_facts_from_local_kg(CARBON, local_kg=pinned_kg,
+                                        quality_policy=quality_policy)
+    assert len(silicon) == 3
+    assert len(carbon) == 16
+    assert {fact.direction for fact in carbon} == {"IN"}
+
+
+@requires_pinned_kg
+def test_b12_t5_an_answer_outside_the_pinned_graph_is_refused_not_emptied(
+        pinned_kg, quality_policy):
+    """An empty inventory must never stand in for "not in the snapshot"."""
+    with pytest.raises(AnswerNotFoundError) as error:
+        answer_facts_from_local_kg(
+            "http://dbpedia.org/resource/Not_A_Node_In_This_Snapshot",
+            local_kg=pinned_kg, quality_policy=quality_policy)
+    assert "not a node of the pinned local KG" in str(error.value)
+
+
+# --------------------------------------------------------------------------
+# B1.2-T6. Answer leakage — the frozen R1 rule, unchanged
+# --------------------------------------------------------------------------
+
+
+@requires_pinned_kg
+def test_b12_t6_carbon_carbonado_is_still_a_hard_leak(pinned_kg, quality_policy):
+    """The original failure: "Carbonado" contains "Carbon" and gives the Answer away."""
+    facts = by_identity(answer_facts_from_local_kg(
+        CARBON, local_kg=pinned_kg, quality_policy=quality_policy))
+    carbonado = ("http://dbpedia.org/property/formula", "IN",
+                 "http://dbpedia.org/resource/Carbonado")
+    assert facts[carbonado].eligible is False
+    # Hard, not soft: a soft leak only orders equally small rationales.
+    assert facts[carbonado].soft_leak is False
+
+
+@requires_pinned_kg
+def test_b12_t6_the_clean_carbon_negative_controls_are_untouched(pinned_kg,
+                                                                 quality_policy):
+    """Fifteen of Carbon's sixteen facts stay eligible; only Carbonado is removed."""
+    facts = answer_facts_from_local_kg(CARBON, local_kg=pinned_kg,
+                                       quality_policy=quality_policy)
+    ineligible = [fact for fact in facts if not fact.eligible]
+    assert len(ineligible) == 1
+    assert ineligible[0].counterpart_uri.endswith("/Carbonado")
+    for name in ("Diamond", "Graphite", "Blue_diamond", "Coal"):
+        assert any(fact.counterpart_uri.endswith("/" + name) and fact.eligible
+                   for fact in facts), name
+
+
+def test_b12_t6_carbon_boron_carbide_is_not_hard_rejected(quality_policy):
+    """The other half of the calibration, stated on the rule itself.
+
+    ``dbr:Boron_carbide`` is not in Carbon's one-hop neighbourhood in this
+    snapshot, so it cannot be pinned through an extraction. It is pinned here on
+    the frozen assessor the adapter delegates to, because the two thresholds that
+    separate ``Carbon``/``Carbonado`` (shared prefix "carbon", six characters,
+    HARD) from ``Carbon``/``Boron_carbide`` (shared prefix "carb", four
+    characters, at most SOFT) are exactly what an over-eager stemmer would
+    destroy — and B1.2 must not introduce one.
+    """
+    assessed = assess_fact_quality(
+        answer_uri=CARBON,
+        predicate_uri="http://dbpedia.org/property/formula",
+        direction="IN",
+        counterpart_uri="http://dbpedia.org/resource/Boron_carbide",
+        policy=quality_policy)
+    assert assessed.leakage.hard_leak is False
+    assert assessed.eligible is True
+
+
+# --------------------------------------------------------------------------
+# B1.2-T7. Display safety — parentheses and Roman numerals survive
+# --------------------------------------------------------------------------
+
+
+@requires_pinned_kg
+def test_b12_t7_parentheticals_survive_the_whole_b12_path(einstein_facts):
+    """Disambiguating parentheses are part of the entity's name, not noise.
+
+    Both an eligible and an ineligible fact are checked: an ineligible fact still
+    has to carry a correct label, because it is what a reviewer reads when
+    checking why the hard filter removed it.
+    """
+    facts = by_identity(einstein_facts)
+    young = facts[("http://dbpedia.org/property/influenced", "IN",
+                   "http://dbpedia.org/resource/Thomas_Young_(scientist)")]
+    crater = facts[("http://dbpedia.org/property/eponym", "IN",
+                    "http://dbpedia.org/resource/Einstein_(crater)")]
+    assert young.display_label == "Thomas Young (scientist)"
+    assert young.eligible is True
+    assert crater.display_label == "Einstein (crater)"
+    assert crater.eligible is False
+
+
+@requires_pinned_kg
+def test_b12_t7_diacritics_survive_and_underscores_become_spaces(einstein_facts):
+    facts = by_identity(einstein_facts)
+    assert facts[("http://dbpedia.org/property/spouse", "OUT",
+                  "http://dbpedia.org/resource/Mileva_Marić")
+                 ].display_label == "Mileva Marić"
+
+
+@pytest.mark.parametrize("uri,expected", [
+    ("http://dbpedia.org/resource/Iron(III)_chloride", "Iron(III) chloride"),
+    ("http://dbpedia.org/resource/Iron(II)_chloride", "Iron(II) chloride"),
+    ("http://dbpedia.org/resource/Chromium(VI)_oxide", "Chromium(VI) oxide"),
+])
+def test_b12_t7_chemical_roman_numerals_are_preserved(uri, expected,
+                                                      quality_policy):
+    """Iron(III) chloride and Iron(II) chloride are DIFFERENT compounds.
+
+    The legacy ``remove_parenthetical()`` turned both into "Iron chloride",
+    misnaming the entity and collapsing two choices onto one label. These three
+    are not in the pilot Answers' neighbourhoods, so they are pinned on the same
+    frozen assessor B1.2 calls — the display path is shared, so this is the same
+    label the adapter would emit for them.
+    """
+    assessed = assess_fact_quality(
+        answer_uri="http://dbpedia.org/resource/Sulfuric_acid",
+        predicate_uri="http://dbpedia.org/property/formula",
+        direction="IN", counterpart_uri=uri, policy=quality_policy)
+    assert assessed.display_label == expected
+
+
+# --------------------------------------------------------------------------
+# B1.2-T8. B1.2 performs NO evidence classification
+# --------------------------------------------------------------------------
+
+
+def b12_function_nodes():
+    """The AST of the two functions B1.2 added, and nothing else."""
+    tree = ast.parse(INPUTS_SOURCE.read_text("utf-8"))
+    wanted = {"answer_facts_from_local_kg", "answer_node_index"}
+    found = [node for node in ast.walk(tree)
+             if isinstance(node, ast.FunctionDef) and node.name in wanted]
+    assert {node.name for node in found} == wanted
+    return found
+
+
+def test_b12_t8_no_evidence_classification_is_imported_or_called():
+    """``classify_fact_against_candidate`` needs a candidate; B1.2 has no roster."""
+    text = INPUTS_SOURCE.read_text("utf-8")
+    assert "classify_fact_against_candidate" not in text
+    tree = ast.parse(text)
+    imported: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            imported.update(alias.name for alias in node.names)
+    assert "classify_fact_against_candidate" not in imported
+    assert "evidence" not in {(node.module or "").rsplit(".", 1)[-1]
+                              for node in ast.walk(tree)
+                              if isinstance(node, ast.ImportFrom)}
+
+
+def test_b12_t8_the_b12_functions_build_no_answer_fact_and_no_levels():
+    """No ``AnswerFact``, and none of the three per-candidate axes, anywhere in B1.2.
+
+    An evidence level belongs to an ordered (Answer fact, candidate) pair. B1.2
+    has no candidate roster, so a level produced here could only be invented.
+    """
+    banned_names = {"AnswerFact", "classify_fact_against_candidate",
+                    "select_distractors", "build_case"}
+    banned_fields = {"levels", "exclusion_bases", "granularity_risks"}
+    for function in b12_function_nodes():
+        for node in ast.walk(function):
+            if isinstance(node, ast.Name):
+                assert node.id not in banned_names, (function.name, node.id)
+            if isinstance(node, ast.Attribute):
+                assert node.attr not in banned_fields, (function.name, node.attr)
+            if isinstance(node, ast.keyword):
+                assert node.arg not in banned_fields, (function.name, node.arg)
+
+
+@requires_pinned_kg
+def test_b12_t8_the_returned_records_carry_no_level_attribute(einstein_facts):
+    """The runtime counterpart: FactQuality has the eleven fields and no twelfth."""
+    for fact in einstein_facts:
+        assert not hasattr(fact, "levels")
+        assert not hasattr(fact, "exclusion_bases")
+        assert not hasattr(fact, "granularity_risks")
+    assert set(vars(einstein_facts[0])) == set(QUALITY_FIELDS)
+
+
+@requires_pinned_kg
+def test_b12_t8_albert_einstein_still_has_no_answer_case(pinned_kg,
+                                                         quality_policy):
+    """Facts are not a case. Einstein has 66 facts and still no candidate roster.
+
+    B1.3 is where a roster could come from, and it has not been started.
+    """
+    assert len(answer_facts_from_local_kg(EINSTEIN, local_kg=pinned_kg,
+                                          quality_policy=quality_policy)) == 66
+    with pytest.raises(AnswerNotFoundError):
+        case_from_frozen_records(EINSTEIN, handoff_path=HANDOFF,
+                                 evidence_path=EVIDENCE)
+
+
+# --------------------------------------------------------------------------
+# B1.2-T9 and B1.2-T10. Zero network, one graph load, frozen kernel
+# --------------------------------------------------------------------------
+
+
+@requires_pinned_kg
+def test_b12_t9_the_real_einstein_extraction_attempted_no_connection(
+        einstein_facts):
+    """The guard was installed AROUND the acceptance-gate extraction itself."""
+    assert len(einstein_facts) == 66
+    assert NETWORK_ATTEMPTS == []
+
+
+@requires_pinned_kg
+def test_b12_t9_the_pinned_graph_was_loaded_exactly_once(einstein_facts):
+    """One module-scoped load for the whole B1.2 group: 1.2 GB read one time."""
+    assert PINNED_KG_LOADS == [str(PINNED_KG)]
+
+
+@requires_pinned_kg
+def test_b12_t9_the_loaded_graph_is_the_pinned_build(pinned_kg):
+    """A rebuilt graph renumbers every node, so the digest is checked, not assumed."""
+    assert pinned_kg.source_sha256 == PINNED_KG_SHA256
+    assert pinned_kg.source_path == PINNED_KG
+
+
+def test_b12_t10_the_frozen_kernel_is_untouched_by_b12():
+    """Restated in the B1.2 group: step 2 adds a reader, not a kernel change."""
+    assert hashlib.sha256(CORE_SOURCE.read_bytes()).hexdigest() == FROZEN_KERNEL_SHA256
+
+
+def test_b12_the_l2_wording_is_the_scientifically_accurate_one():
+    """The over-broad "no L2 rule is implemented anywhere" claim is corrected.
+
+    The frozen R1 layer DOES contain generic EvidenceProof/L2-proof machinery.
+    What is true is that no L2 rule is currently activated and the frozen l2_rules
+    set is empty, so the pilot has zero L2 incidences. Saying less than that would
+    misdescribe the upstream code; saying more would claim a proof source exists.
+    """
+    text = INPUTS_SOURCE.read_text("utf-8")
+    assert "No L2 rule is\n    implemented anywhere in this project" not in text
+    assert "currently activated in the frozen offline policy" in text
+    assert "no trustworthy L2 proof source/rule is active" in text

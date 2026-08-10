@@ -1,4 +1,5 @@
-"""Frozen-record ``AnswerCase`` adapter for Journal 2 — Phase B1, step 1.
+"""Journal 2 Phase-B input adapter: frozen ``AnswerCase`` records (B1.1) plus the
+Answer's own observed facts read from the pinned local KG (B1.2).
 
 WHY THIS MODULE EXISTS
 ----------------------
@@ -12,21 +13,41 @@ verbalization template. It receives an ``AnswerCase`` whose per-candidate
 evidence levels and per-fact quality fields are **already decided**, and consumes
 them as opaque attributes.
 
-Somebody has to discharge that upstream obligation. This module is the first and
-smallest instalment: it discharges it for the Answers whose levels and quality
-fields were already computed and written to disk by the frozen Prompt-8D ranking
-run and the frozen Prompt-8F-R1 evidence run. It reads exactly two files, it
+Somebody has to discharge that upstream obligation. This module discharges it in
+two instalments.
+
+**B1.1 — frozen records.** For the Answers whose levels and quality fields were
+already computed and written to disk by the frozen Prompt-8D ranking run and the
+frozen Prompt-8F-R1 evidence run, this module reads exactly two files, it
 **decides nothing**, and it validates everything before the kernel is allowed to
-see the result.
+see the result. That is everything down to :func:`case_from_frozen_records`.
+
+**B1.2 — the Answer's own facts, for an Answer the frozen runs never processed.**
+:func:`answer_facts_from_local_kg` reconstructs the complete one-hop observed
+fact inventory of one Answer from the already-loaded pinned local KG and attaches
+the frozen R1 fact-quality/Answer-leakage fields to each fact. That is a strictly
+per-Answer step: it is the half of the upstream obligation that needs no
+candidate roster.
 
 WHAT THIS MODULE MUST NEVER BECOME
 ----------------------------------
-It is not the place for KG access, evidence classification, quality assessment,
-leakage detection, semantic closure, class selection or LRoleSim computation.
-Those stay upstream, in their own frozen modules, and their outputs arrive here
-as records. Equally, none of the validation below may migrate into
-``mcq_core.py``: the kernel stays the small selection kernel, and the input
-contract is enforced by its caller.
+It is not the place for evidence classification, quality *policy*, leakage
+*rules*, semantic closure, class selection or LRoleSim computation. Those stay
+upstream, in their own frozen modules, and their outputs arrive here as records
+or as function calls into the frozen implementation — B1.2 calls
+``rationale_v3.quality.assess_fact_quality()`` and reimplements none of it.
+
+The KG access added in B1.2 is deliberately narrow: this module never opens,
+builds, repairs or caches a local-KG file. It receives an **already-loaded**
+graph object and an **already-loaded** quality policy as arguments, reads one
+node's one-hop edges through the frozen ``selection.observed_facts`` enumeration,
+and stops there. Resolving, verifying and loading the pinned graph stays in
+``kg.loader``, where the "never rebuild, never fall back to the network" rules
+already live.
+
+Equally, none of the validation below may migrate into ``mcq_core.py``: the
+kernel stays the small selection kernel, and the input contract is enforced by
+its caller.
 
 THE NINE INVARIANTS — and what breaks scientifically without each one
 ---------------------------------------------------------------------
@@ -118,10 +139,12 @@ rewrites one.
     undocumented.
 ``L2``
     Verified exclusion, requiring a machine-checkable proof. **No L2 rule is
-    implemented anywhere in this project**, and the pilot contains zero L2
-    incidences; zero is the correct offline outcome, not a gap. The vocabulary
-    accepts ``L2`` only so that a future, separately approved rule would not need
-    this file changed.
+    currently activated in the frozen offline policy, and the pilot contains zero
+    L2 incidences. The upstream R1 layer contains generic EvidenceProof/L2-proof
+    machinery, but no trustworthy L2 proof source/rule is active for the current
+    DBpedia-infobox experiment.** Zero is therefore the correct offline outcome,
+    not a gap. The vocabulary accepts ``L2`` only so that a future, separately
+    approved rule would not need this file changed.
 
 ``SCOPED_EMPIRICAL`` is an annotation on an existing L1, never a fourth level.
 ``CLOSURE_RAN`` on a frozen record means **only that the semantic check
@@ -143,9 +166,11 @@ direction it reads and never groups by predicate alone.
 
 OFFLINE BY CONSTRUCTION
 -----------------------
-Imports are ``json``, ``pathlib``, ``typing`` and ``mcq_core``. No network, no
-SPARQL client, no embedding model, no NLP toolkit, no pinned-KG load, and no
-import of any test module.
+Imports are ``json``, ``pathlib``, ``typing``, ``mcq_core`` and the three frozen
+offline helpers B1.2 delegates to — the R1 quality assessor, the R1 URI
+normalizer and the Prompt-8D one-hop edge enumeration. No network, no SPARQL
+client, no embedding model, no NLP toolkit, no WordNet, no LLM, no file-format
+parser of its own, and no import of any test module.
 """
 
 from __future__ import annotations
@@ -155,6 +180,15 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from mcq_core import AnswerCase, AnswerFact, Candidate, FactQuality, build_case
+# The three frozen upstream behaviours B1.2 reuses instead of reimplementing.
+# `assess_fact_quality` IS the R1 hard eligibility filter and the R1 deterministic
+# Answer-leakage rule; `normalize_uri` is the exact URI normalization R1 applied
+# before assessing a fact, so the two agree on fact identity; `observed_edge_set`
+# and `DIRECTION_LABEL` are the corrected Prompt-8D one-hop enumeration, whose
+# cache identity already includes the graph's SHA-256 and the IN/OUT flag.
+from rationale_v3.quality import assess_fact_quality
+from rationale_v3.semantic_relations import normalize_uri
+from selection.observed_facts import DIRECTION_LABEL, observed_edge_set
 
 # --------------------------------------------------------------------------
 # Frozen vocabularies and pinned parameters
@@ -249,13 +283,18 @@ class FrozenInputError(Exception):
 
 
 class AnswerNotFoundError(FrozenInputError):
-    """No frozen records exist for the requested Answer.
+    """The requested Answer has no frozen records, or is not in the pinned KG.
 
     This is the honest outcome for any Answer the frozen runs never processed —
     Albert Einstein is the worked example. It is a *failure*, deliberately, and
     never a quietly empty ``AnswerCase``: fabricating candidates, scores or
     evidence levels for an Answer that has none would produce an MCQ whose
     numbers came from nowhere.
+
+    B1.2 raises the same error for an Answer URI that is not a node of the pinned
+    local KG, for the same reason: an Answer outside the snapshot has no observed
+    facts, and an empty fact inventory would be indistinguishable from an Answer
+    that genuinely has none.
     """
 
 
@@ -677,3 +716,126 @@ def case_from_frozen_records(
     evidence_records = find_evidence_records(read_jsonl(evidence_path), answer_uri,
                                              str(evidence_path))
     return case_from_records(answer_uri, ranking_row, evidence_records)
+
+
+# --------------------------------------------------------------------------
+# Phase B1.2 — the Answer's own observed facts, read from the pinned local KG
+# --------------------------------------------------------------------------
+
+
+def answer_node_index(answer_uri: str, local_kg) -> int:
+    """The pinned local KG's node index for ``answer_uri``, or a clear failure.
+
+    The pinned graph keys its URIs in the angle-bracket spelling ``<http://…>``
+    that the graph build wrote, while every frozen record, every policy file and
+    every caller spells them plain. Both spellings are tried, bracketed first, so
+    a caller never has to know which one a particular build used, and neither
+    spelling is silently preferred when only one exists.
+    """
+    for spelling in ("<" + answer_uri + ">", answer_uri):
+        index = local_kg.index_for_uri_or_none(spelling)
+        if index is not None:
+            return index
+    raise AnswerNotFoundError(
+        f"{answer_uri} is not a node of the pinned local KG, so it has no "
+        f"observed one-hop facts there; this module reports that rather than "
+        f"returning an empty fact inventory that would look like an Answer with "
+        f"genuinely no facts")
+
+
+def answer_facts_from_local_kg(
+    answer_uri: str,
+    *,
+    local_kg,
+    quality_policy,
+) -> tuple[FactQuality, ...]:
+    """Return every distinct one-hop observed Answer fact with frozen R1 quality.
+
+    No evidence level is assigned here because an evidence level belongs to an
+    ordered (Answer fact, candidate) pair, and no candidate roster is available
+    in Phase B1.2. Nothing in this function reads, derives or stores a level, an
+    exclusion basis or a granularity risk, and it never builds an ``AnswerFact``.
+
+    WHAT IS RETURNED
+        The **complete** inventory: every distinct
+        ``(predicate_uri, direction, counterpart_uri)`` observed for the Answer
+        in the pinned snapshot, ineligible facts included. ``eligible`` is
+        reported per fact and nothing is filtered out, because the ineligible
+        facts are exactly what a reviewer needs in order to check that the hard
+        filter removed the right ones. Ordering is ascending
+        ``(predicate_uri, direction, counterpart_uri)``, so two extractions of
+        the same Answer from the same graph are identical tuples.
+
+    DIRECTION IS PART OF THE IDENTITY, NEVER MERGED
+        ``(Answer, p, x)`` is an OUT fact and ``(x, p, Answer)`` is an IN fact.
+        The two are counted, keyed and returned separately even when they share a
+        predicate and even when they share a counterpart, because they are
+        different relations with different verbalizations. Albert Einstein has 9
+        OUT and 57 IN facts, and ``dbp:children`` occurs in both directions.
+
+    NOTHING HERE IS A NEW RULE
+        Enumeration is ``selection.observed_facts.observed_edge_set()``, the
+        corrected Prompt-8D one-hop edge set whose cache identity includes the
+        graph's SHA-256, the node and the IN/OUT flag. Identity normalization is
+        the frozen ``normalize_uri()``: strip the bracket spelling, Unicode NFC,
+        drop one trailing ``/``. It is applied to the predicate and the
+        counterpart because R1 applied it before assessing quality, so without it
+        two DBpedia spellings of one URL would be two facts here and one fact
+        there. Quality and Answer-leakage come from the frozen
+        ``assess_fact_quality()`` — this module contains no leakage threshold, no
+        allowlist, no template table and no tier table of its own.
+
+    OPEN WORLD
+        Every returned fact is OBSERVED in the pinned snapshot. Absence is not
+        recorded, not returned, and not implied to be false.
+
+    ``local_kg`` is an already-loaded graph object (``kg.loader.LocalKG``) and
+    ``quality_policy`` an already-loaded ``rationale_v3.quality.QualityPolicy``.
+    Both are arguments rather than module state so that this function opens no
+    file, verifies no digest and holds no 1.2 GB object alive between calls.
+    """
+    node = answer_node_index(answer_uri, local_kg)
+
+    identities: set[tuple[str, str, str]] = set()
+    for predicate_index, direction_code, counterpart_index in observed_edge_set(
+            node, local_kg, use_in=True):
+        predicate = local_kg.index_url.get(predicate_index)
+        counterpart = local_kg.index_url.get(counterpart_index)
+        if predicate is None or counterpart is None:
+            # Not URI-valued as far as this snapshot can tell. The frozen
+            # Prompt-8D enumeration skipped such an edge rather than emitting a
+            # fabricated URI, and this reconstruction must agree with it.
+            continue
+        identities.add((normalize_uri(predicate),
+                        DIRECTION_LABEL[direction_code],
+                        normalize_uri(counterpart)))
+
+    facts: list[FactQuality] = []
+    # sorted() over the identity set gives both deduplication and the canonical
+    # order in one step; a set cannot hold a duplicate identity by construction.
+    for predicate_uri, direction, counterpart_uri in sorted(identities):
+        assessed = assess_fact_quality(
+            answer_uri=answer_uri,
+            predicate_uri=predicate_uri,
+            direction=direction,
+            counterpart_uri=counterpart_uri,
+            policy=quality_policy)
+        # The eleven fields of mcq_core.FactQuality, copied across from the R1
+        # result. `eligible` is R1's derived hard-filter verdict (predicate OK,
+        # object OK, no hard Answer leak) and `soft_leak` lives on R1's nested
+        # leakage result; the other nine are attribute-for-attribute. No twelfth
+        # field is invented and no field is recomputed.
+        facts.append(FactQuality(
+            predicate_uri=assessed.predicate_uri,
+            direction=assessed.direction,
+            counterpart_uri=assessed.counterpart_uri,
+            display_label=assessed.display_label,
+            eligible=assessed.eligible,
+            soft_leak=assessed.leakage.soft_leak,
+            verbalizable=assessed.verbalizable,
+            pedagogical_tier=assessed.pedagogical_tier,
+            label_length=assessed.label_length,
+            token_count=assessed.token_count,
+            template_id=assessed.template_id,
+        ))
+    return tuple(facts)
