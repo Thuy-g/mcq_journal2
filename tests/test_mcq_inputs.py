@@ -1191,19 +1191,20 @@ def b12_function_nodes():
     return found
 
 
-def test_b12_t8_no_evidence_classification_is_imported_or_called():
-    """``classify_fact_against_candidate`` needs a candidate; B1.2 has no roster."""
-    text = INPUTS_SOURCE.read_text("utf-8")
-    assert "classify_fact_against_candidate" not in text
-    tree = ast.parse(text)
-    imported: set = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            imported.update(alias.name for alias in node.names)
-    assert "classify_fact_against_candidate" not in imported
-    assert "evidence" not in {(node.module or "").rsplit(".", 1)[-1]
-                              for node in ast.walk(tree)
-                              if isinstance(node, ast.ImportFrom)}
+def test_b12_t8_no_evidence_classification_happens_inside_the_b12_functions():
+    """``classify_fact_against_candidate`` needs a candidate; B1.2 has no roster.
+
+    B1.3 legitimately imports the classifier at module level, so this assertion
+    is scoped to the two B1.2 functions rather than to the file. What it protects
+    is unchanged and is the reason B1.2 and B1.3 are separate steps: the Answer's
+    own fact inventory is decided without reference to any candidate, and a level
+    produced inside it could only have been invented.
+    """
+    for function in b12_function_nodes():
+        called = {node.func.id for node in ast.walk(function)
+                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+        assert "classify_fact_against_candidate" not in called, function.name
+        assert "RationaleProposition" not in called, function.name
 
 
 def test_b12_t8_the_b12_functions_build_no_answer_fact_and_no_levels():
@@ -1292,3 +1293,758 @@ def test_b12_the_l2_wording_is_the_scientifically_accurate_one():
     assert "No L2 rule is\n    implemented anywhere in this project" not in text
     assert "currently activated in the frozen offline policy" in text
     assert "no trustworthy L2 proof source/rule is active" in text
+
+
+# ==========================================================================
+# PHASE B1 STEP 3 — per-(fact, candidate) evidence, and semantic safety
+# ==========================================================================
+#
+# B1.3 adds exactly one capability: given Answer facts and a ranked roster,
+# produce the aligned evidence level, exclusion basis and granularity risk for
+# every pair, by DELEGATING every scientific decision to the frozen R1 classifier.
+#
+# Two kinds of test, and both are needed.
+#
+#   the pilot gate       All 14,860 frozen (Answer fact, candidate) incidences
+#                        are reconstructed and compared axis by axis. It is the
+#                        only test that can show the delegation is wired to the
+#                        same inputs the published run used. It cannot show the
+#                        semantic behaviour, because the pilot happens to contain
+#                        no granularity risk at all: 14,860 of 14,860 incidences
+#                        are NONE on that axis.
+#   semantic safety      Nine synthetic pins, each a single-edge graph, for the
+#                        behaviours the pilot never exercises — canonical
+#                        equivalence, both containment directions, an unavailable
+#                        index, IN/OUT separation, a missing candidate node, and
+#                        the scoped-empirical annotation. Without these, the two
+#                        most dangerous failures in this step (an unavailable
+#                        index silently reading as absence, and an IN object
+#                        answering an OUT question) would both pass the gate.
+#
+# What is NOT tested here, because B1.3 must not do it: no distractor selection,
+# no set-cover execution, no candidate roster for Albert Einstein, no class
+# selection, no member retrieval, no LRoleSim, no verbalization.
+
+from dataclasses import replace  # noqa: E402
+
+from mcq_inputs import (  # noqa: E402
+    candidate_objects_from_local_kg,
+    levels_for_candidates,
+)
+from mcq_core import Candidate  # noqa: E402
+from rationale_v3.evidence import (  # noqa: E402
+    EvidenceRule,
+    load_evidence_rules,
+)
+from rationale_v3.semantic_relations import (  # noqa: E402
+    AncestorEdge,
+    build_semantic_index,
+    load_semantic_relation_policy,
+    unavailable_semantic_index,
+)
+# The frozen R1 orchestration, imported READ-ONLY and for the pilot fixture only.
+# It supplies the same Prompt-8D roster, the same semantic-index cache key and
+# the same scoped-empirical rule derivation the published run used; reproducing
+# any of those here would be a second implementation of the thing under test.
+from pipeline.rationale_v3_run import (  # noqa: E402
+    EVIDENCE_RULES_PATH,
+    FROZEN_PROMPT8D_DIR,
+    build_answer_inputs,
+    derive_rulebook,
+    load_pilot_semantic_index,
+    load_prompt8d_handoff,
+)
+
+SEMANTIC_POLICY_PATH = (ROOT / "src" / "rationale_v3" / "policies"
+                        / "semantic_relation_policy.json")
+
+#: The frozen R1 pilot totals, re-counted for EVIDENCE_TAXONOMY_V1.md §8 and
+#: restated here as the acceptance gate. They are TEST EXPECTATIONS: nothing in
+#: the production module knows any of them.
+PILOT_INCIDENCE_COUNT = 14_860
+PILOT_ALL_FACT_LEVELS = {"NOT_COVERED": 313, "L0": 8_485, "L1": 6_062, "L2": 0}
+PILOT_ELIGIBLE_FACT_LEVELS = {"NOT_COVERED": 313, "L0": 7_962, "L1": 5_981,
+                              "L2": 0}
+PILOT_SCOPED_EMPIRICAL_COUNT = 39
+
+# --- the synthetic vocabulary ----------------------------------------------
+# Real DBpedia URIs, because normalize_uri(), the traversal allowlist and the
+# frozen equivalence table all key on real spellings. No triple below is claimed
+# to be in the pinned snapshot: these are one-edge fixtures, not measurements.
+BORN_IN = "http://dbpedia.org/property/birthPlace"
+INFLUENCED = "http://dbpedia.org/property/influenced"
+IS_PART_OF = "http://dbpedia.org/property/isPartOf"
+TOKYO = "http://dbpedia.org/resource/Tokyo"
+SHINJUKU = "http://dbpedia.org/resource/Shinjuku"
+KYOTO = "http://dbpedia.org/resource/Kyoto"
+# The one frozen redirect pair used below. It is in the R1 semantic policy's
+# equivalence table, which is read offline from the Prompt-8B class-member file.
+HERACLITUS = "http://dbpedia.org/resource/Heraclitus"
+ANTISTHENES = "http://dbpedia.org/resource/Antisthenes_(Heraclitean)"
+ANSWER = "http://dbpedia.org/resource/Synthetic_Answer"
+DISTRACTOR = "http://dbpedia.org/resource/Synthetic_Distractor"
+SYNTHETIC_SCOPE = "http://dbpedia.org/resource/Category:Synthetic_scope"
+
+
+class SyntheticKG:
+    """The smallest object ``observed_edge_set()`` accepts.
+
+    Four attributes and one method, matching what ``kg.loader.LocalKG`` exposes
+    to this adapter: ``index_url`` for index → URI, ``out_neighbor`` and
+    ``in_neighbor`` for the one-hop adjacency, ``source_sha256`` so the frozen
+    edge-set cache keys each fixture separately, and ``index_for_uri_or_none``.
+
+    Every instance gets its own ``source_sha256``. That is not decoration: the
+    frozen cache identity is ``(kg_identity, node, use_in, schema)``, and it is
+    the component that stops one fixture's edges from being served to another —
+    exactly the AUDIT EX-4 defect the corrected cache exists to prevent.
+    """
+
+    def __init__(self, name, triples):
+        self.source_sha256 = f"synthetic-{name}"
+        uris = sorted({uri for triple in triples for uri in triple})
+        self.index_url = dict(enumerate(uris))
+        self._index_for = {uri: index for index, uri in self.index_url.items()}
+        self.out_neighbor: dict = {}
+        self.in_neighbor: dict = {}
+        for subject, predicate, obj in triples:
+            s, p, o = (self._index_for[subject], self._index_for[predicate],
+                       self._index_for[obj])
+            self.out_neighbor.setdefault(s, []).append((p, o))
+            self.in_neighbor.setdefault(o, []).append((p, s))
+
+    def index_for_uri_or_none(self, uri):
+        return self._index_for.get(uri)
+
+
+def synthetic_quality(predicate_uri, direction, counterpart_uri):
+    """One FactQuality standing in for a B1.2 record.
+
+    ``eligible`` is True throughout: B1.3 consumes the quality verdict and never
+    re-derives it, so these tests must not depend on re-deriving it either.
+    """
+    return FactQuality(
+        predicate_uri=predicate_uri, direction=direction,
+        counterpart_uri=counterpart_uri, display_label="synthetic",
+        eligible=True, soft_leak=False, verbalizable=False, pedagogical_tier=3,
+        label_length=9, token_count=1, template_id="VERBALIZABLE_UNKNOWN")
+
+
+def containment_index():
+    """An AVAILABLE index in which Shinjuku lies under Tokyo.
+
+    One allowlisted ``dbp:isPartOf`` edge, walked by the frozen bounded closure.
+    The policy is the real frozen one, so the allowlist, the depth bound and the
+    frozen redirect table are the published ones and not a local invention.
+    """
+    policy = load_semantic_relation_policy(SEMANTIC_POLICY_PATH)
+    return build_semantic_index(policy=policy, parent_edges=[AncestorEdge(
+        child_uri=SHINJUKU, parent_uri=TOKYO,
+        rule_id="PLACE_CONTAINMENT_IS_PART_OF_V1", predicate_uri=IS_PART_OF,
+        relation_kind="ADMINISTRATIVE_PLACE_CONTAINMENT")])
+
+
+def missing_index():
+    """An index that answers SEMANTIC_RELATION_UNAVAILABLE for every walk.
+
+    Canonical equality still works — normalization and the frozen redirect table
+    need no graph — which is why "index unavailable" is not "nothing is known".
+    """
+    return unavailable_semantic_index(
+        load_semantic_relation_policy(SEMANTIC_POLICY_PATH),
+        "withheld by a B1.3 semantic-safety test")
+
+
+def empty_rulebook():
+    """The frozen evidence policy with nothing derived: no annotation can fire."""
+    return load_evidence_rules(EVIDENCE_RULES_PATH)
+
+
+def classify_one(*, triples, quality, index=None, rulebook=None,
+                 scope=SYNTHETIC_SCOPE, candidate_uri=DISTRACTOR, name="kg"):
+    """Classify ONE fact against ONE candidate; return (level, basis, risk)."""
+    facts = levels_for_candidates(
+        (quality,), (Candidate(rank=1, score=0.5, uri=candidate_uri),),
+        local_kg=SyntheticKG(name, triples),
+        semantic_index=containment_index() if index is None else index,
+        rulebook=empty_rulebook() if rulebook is None else rulebook,
+        scope=scope)
+    assert len(facts) == 1
+    fact = facts[0]
+    return (fact.levels[0], fact.exclusion_bases[0], fact.granularity_risks[0])
+
+
+# --------------------------------------------------------------------------
+# B1.3-T1. The pilot gate — all 14,860 incidences, three axes, no tolerance
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def pilot_prompt8d_inputs():
+    """The frozen Prompt-8D handoff, which is also the semantic cache's key."""
+    return load_prompt8d_handoff(FROZEN_PROMPT8D_DIR)
+
+
+@pytest.fixture(scope="module")
+def pilot_answer_inputs(pilot_prompt8d_inputs):
+    return build_answer_inputs(pilot_prompt8d_inputs)
+
+
+@pytest.fixture(scope="module")
+def pilot_semantic_index(pilot_prompt8d_inputs):
+    """The cached pilot index, keyed on the pinned KG, the policy and the pilot.
+
+    ``SemanticIndexCacheKey`` digests the exact counterpart-URI set the run
+    reasons about, so a cache built for a different pilot is refused rather than
+    reused. The reconstruction is only comparable to the frozen audit when this
+    key matches, which is asserted below rather than assumed.
+    """
+    return load_pilot_semantic_index(pilot_prompt8d_inputs)
+
+
+@pytest.fixture(scope="module")
+def pilot_rulebook(pilot_answer_inputs, pilot_semantic_index, quality_policy):
+    """The SAME derived rulebook the frozen R1 run used.
+
+    Derivation is the frozen R1 code, called read-only. B1.3 production code
+    derives no rule: it receives an already-prepared rulebook, because a support
+    threshold invented at classification time would be a second, unpublished
+    threshold.
+    """
+    book, _per_scope = derive_rulebook(
+        pilot_answer_inputs, base=load_evidence_rules(EVIDENCE_RULES_PATH),
+        semantic_index=pilot_semantic_index,
+        rejected_predicates=quality_policy.hard_reject_predicates)
+    return book
+
+
+def frozen_r1_incidences():
+    """``{(answer, fact identity, candidate): (level, basis, risk)}`` — the oracle.
+
+    Read from the frozen R1 evidence audit, which is never an input to the
+    reconstruction it grades.
+    """
+    frozen: dict = {}
+    for record in read_jsonl(EVIDENCE):
+        if record.get("record_type") != "answer_fact_evidence":
+            continue
+        quality = record["quality"]
+        identity = (quality["predicate_uri"], quality["direction"],
+                    quality["counterpart_uri"])
+        for row in record["per_candidate"]:
+            frozen[(record["answer_uri"], identity, row["candidate_uri"])] = (
+                row["evidence_level"], row["exclusion_basis"],
+                row["granularity_risk"])
+    return frozen
+
+
+@pytest.fixture(scope="module")
+def pilot_reconstruction(pinned_kg, quality_policy, pilot_answer_inputs,
+                         pilot_semantic_index, pilot_rulebook):
+    """Every pilot incidence, rebuilt through the production function ONCE.
+
+    Returns ``{(answer, fact identity, candidate): (level, basis, risk)}`` plus
+    the eligibility of each fact, so the level totals can be reported both over
+    all facts and over eligible facts alone without a second reconstruction.
+    """
+    with no_network(NETWORK_ATTEMPTS):
+        rebuilt: dict = {}
+        eligible: dict = {}
+        for answer in pilot_answer_inputs:
+            facts = answer_facts_from_local_kg(
+                answer.answer_uri, local_kg=pinned_kg,
+                quality_policy=quality_policy)
+            candidates = tuple(
+                Candidate(rank=view.rank, score=view.score,
+                          uri=view.canonical_candidate_uri)
+                for view in answer.ranked_candidates)
+            for fact in levels_for_candidates(
+                    facts, candidates, local_kg=pinned_kg,
+                    semantic_index=pilot_semantic_index,
+                    rulebook=pilot_rulebook, scope=answer.scope):
+                identity = fact.quality.identity
+                eligible[(answer.answer_uri, identity)] = fact.quality.eligible
+                for position, candidate in enumerate(candidates):
+                    rebuilt[(answer.answer_uri, identity, candidate.uri)] = (
+                        fact.levels[position], fact.exclusion_bases[position],
+                        fact.granularity_risks[position])
+        return (rebuilt, eligible)
+
+
+@requires_pinned_kg
+def test_b13_t1_the_pilot_semantic_index_cache_key_matches(pilot_semantic_index):
+    """The comparison below is meaningless if a different index was loaded."""
+    assert pilot_semantic_index.available
+    assert pilot_semantic_index.unavailable_reason == ""
+    assert pilot_semantic_index.cache_key.pinned_kg_sha256 == PINNED_KG_SHA256
+
+
+@requires_pinned_kg
+def test_b13_t1_every_frozen_incidence_is_reconstructed(pilot_reconstruction):
+    """14,860 incidences rebuilt, none missing, none invented."""
+    rebuilt, _eligible = pilot_reconstruction
+    frozen = frozen_r1_incidences()
+    assert len(frozen) == PILOT_INCIDENCE_COUNT
+    assert len(rebuilt) == PILOT_INCIDENCE_COUNT
+    assert sorted(rebuilt) == sorted(frozen)
+
+
+@requires_pinned_kg
+def test_b13_t1_all_three_axes_agree_on_every_incidence(pilot_reconstruction):
+    """Zero classification discrepancies. No tolerance, and no special case.
+
+    A failure here is NOT to be silenced by exempting the offending pair: the
+    reported difference names the Answer, the fact identity, the candidate and
+    both verdicts, and it means the delegation is reading different inputs than
+    the published run did.
+    """
+    rebuilt, _eligible = pilot_reconstruction
+    frozen = frozen_r1_incidences()
+    differences = [
+        {"answer_uri": key[0], "fact_identity": key[1], "candidate_uri": key[2],
+         "expected": frozen.get(key), "reconstructed": value}
+        for key, value in sorted(rebuilt.items()) if frozen.get(key) != value]
+    assert differences == []
+
+
+@requires_pinned_kg
+def test_b13_t1_the_all_fact_level_totals_are_the_published_ones(
+        pilot_reconstruction):
+    """313 / 8,485 / 6,062 / 0 over all facts, eligible and ineligible alike."""
+    rebuilt, _eligible = pilot_reconstruction
+    counts = dict.fromkeys(PILOT_ALL_FACT_LEVELS, 0)
+    for level, _basis, _risk in rebuilt.values():
+        counts[level] += 1
+    assert counts == PILOT_ALL_FACT_LEVELS
+    assert sum(counts.values()) == PILOT_INCIDENCE_COUNT
+
+
+@requires_pinned_kg
+def test_b13_t1_the_eligible_fact_level_totals_are_the_published_ones(
+        pilot_reconstruction):
+    """313 / 7,962 / 5,981 / 0 among facts the frozen hard filter kept.
+
+    The ineligible facts are still classified and still returned. Dropping them
+    would make the fact indices unstable and would hide from a reviewer which
+    facts the hard filter removed.
+    """
+    rebuilt, eligible = pilot_reconstruction
+    counts = dict.fromkeys(PILOT_ELIGIBLE_FACT_LEVELS, 0)
+    for (answer_uri, identity, _candidate), (level, _b, _r) in rebuilt.items():
+        if eligible[(answer_uri, identity)]:
+            counts[level] += 1
+    assert counts == PILOT_ELIGIBLE_FACT_LEVELS
+
+
+@requires_pinned_kg
+def test_b13_t1_no_l2_is_activated_anywhere_in_the_pilot(pilot_reconstruction,
+                                                         pilot_rulebook):
+    """Zero L2 is the CORRECT offline outcome, not a gap.
+
+    DBpedia infobox properties carry no functional, cardinality, disjointness or
+    negative-assertion declaration that could be trusted offline, so the frozen
+    policy activates no L2 rule. The rulebook is checked as well as the output:
+    zero L2 incidences produced by zero active L2 rules is a different statement
+    from zero incidences that happened to miss.
+    """
+    rebuilt, _eligible = pilot_reconstruction
+    assert pilot_rulebook.counts()["active_l2_rules"] == 0
+    assert [key for key, value in rebuilt.items() if value[0] == "L2"] == []
+    assert [key for key, value in rebuilt.items()
+            if value[1] == "FORMAL_PROOF"] == []
+
+
+@requires_pinned_kg
+def test_b13_t1_scoped_empirical_annotates_39_l1_incidences_and_no_l0(
+        pilot_reconstruction):
+    """39 annotations, every one on an existing L1, none creating a level.
+
+    ``SCOPED_EMPIRICAL`` is an annotation on the separate exclusion-basis axis,
+    not a fourth level. ``L0 + SCOPED_EMPIRICAL`` would claim empirical support
+    for something never observed and is invalid by EVIDENCE_TAXONOMY_V1.md §4.
+    """
+    rebuilt, _eligible = pilot_reconstruction
+    annotated = [key for key, value in rebuilt.items()
+                 if value[1] == "SCOPED_EMPIRICAL"]
+    assert len(annotated) == PILOT_SCOPED_EMPIRICAL_COUNT
+    assert {rebuilt[key][0] for key in annotated} == {"L1"}
+
+
+@requires_pinned_kg
+def test_b13_t1_the_reconstruction_attempted_no_connection(pilot_reconstruction):
+    """The guard was installed AROUND the acceptance-gate reconstruction itself."""
+    rebuilt, _eligible = pilot_reconstruction
+    assert len(rebuilt) == PILOT_INCIDENCE_COUNT
+    assert NETWORK_ATTEMPTS == []
+
+
+@requires_pinned_kg
+def test_b13_t1_the_pinned_graph_is_still_loaded_exactly_once(
+        pilot_reconstruction):
+    """B1.2 and B1.3 share one module-scoped load: 1.2 GB read one time."""
+    assert PINNED_KG_LOADS == [str(PINNED_KG)]
+
+
+# --------------------------------------------------------------------------
+# B1.3-T2. Semantic safety — the behaviours the pilot never exercises
+# --------------------------------------------------------------------------
+
+
+def test_b13_t2_exact_object_equality_is_not_covered():
+    """The candidate holds the very object claimed, so the fact distinguishes
+    nobody at that position — and NOT_COVERED is tested before L0 and L1."""
+    assert classify_one(
+        name="exact", triples=[(DISTRACTOR, BORN_IN, TOKYO)],
+        quality=synthetic_quality(BORN_IN, "OUT", TOKYO)) == (
+            "NOT_COVERED", "NONE", "NONE")
+
+
+def test_b13_t2_a_canonically_equivalent_object_is_not_covered():
+    """A frozen redirect pair is ONE entity, not two.
+
+    String equality would call this an observed alternative and publish a
+    difference that does not exist. The equivalence table is read offline from
+    the Prompt-8B class-member file; nothing here performs a live lookup.
+    """
+    assert classify_one(
+        name="redirect", triples=[(DISTRACTOR, INFLUENCED, ANTISTHENES)],
+        quality=synthetic_quality(INFLUENCED, "OUT", HERACLITUS)) == (
+            "NOT_COVERED", "NONE", "NONE")
+
+
+def test_b13_t2_a_candidate_object_under_the_claim_is_not_covered():
+    """Claim *Tokyo*, candidate *Shinjuku*: asserting the ward ENTAILS the city.
+
+    The candidate supports the Answer proposition, so the fact covers nobody
+    here. This is the only containment direction that removes contrast.
+    """
+    assert classify_one(
+        name="under-claim", triples=[(DISTRACTOR, BORN_IN, SHINJUKU)],
+        quality=synthetic_quality(BORN_IN, "OUT", TOKYO)) == (
+            "NOT_COVERED", "NONE", "NONE")
+
+
+def test_b13_t2_a_claim_under_the_candidate_object_is_l1_plus_a_risk():
+    """Claim *Shinjuku*, candidate *Tokyo*: a RISK, never an exclusion.
+
+    The reverse containment neither supports nor contradicts the claim: the two
+    articles were written at different granularities, so the apparent contrast
+    may be an artefact of that. The observational level stands, and the doubt is
+    recorded on the separate granularity axis, where it orders against the fact
+    and blocks main-corpus eligibility without pretending to be evidence.
+    """
+    assert classify_one(
+        name="over-claim", triples=[(DISTRACTOR, BORN_IN, TOKYO)],
+        quality=synthetic_quality(BORN_IN, "OUT", SHINJUKU)) == (
+            "L1", "NONE", "CLAIM_OBJECT_UNDER_CANDIDATE_OBJECT")
+
+
+def test_b13_t2_an_unavailable_index_keeps_l1_and_never_becomes_l0():
+    """"We did not look" is not "we found nothing". THE R1 CORRECTION.
+
+    With no index the observed alternative value is still observed; only the
+    containment question is unanswered. Downgrading to L0 would relabel a
+    positive observation as a snapshot absence — a false statement about the
+    snapshot — so the level is preserved and the doubt is recorded as
+    UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE.
+    """
+    level, basis, risk = classify_one(
+        name="no-index", triples=[(DISTRACTOR, BORN_IN, KYOTO)],
+        quality=synthetic_quality(BORN_IN, "OUT", TOKYO), index=missing_index())
+    assert (level, basis, risk) == (
+        "L1", "NONE", "UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE")
+    assert level != "L0"
+
+
+def test_b13_t2_canonical_equivalence_still_works_without_an_index():
+    """An unavailable index must not silently disable the redirect check too.
+
+    Normalization and the frozen equivalence table need no graph, so a missing
+    cache leaves canonical identity intact. Were this to regress, a redirect pair
+    would be published as a difference whenever the index was unavailable.
+    """
+    assert classify_one(
+        name="no-index-redirect", triples=[(DISTRACTOR, INFLUENCED, ANTISTHENES)],
+        quality=synthetic_quality(INFLUENCED, "OUT", HERACLITUS),
+        index=missing_index()) == ("NOT_COVERED", "NONE", "NONE")
+
+
+def test_b13_t2_a_candidate_with_no_object_under_the_key_is_l0():
+    """``O_d(κ) = ∅`` is the ONLY thing that may produce L0.
+
+    The candidate is in the graph and records something — under a different key.
+    """
+    assert classify_one(
+        name="absent-key",
+        triples=[(DISTRACTOR, INFLUENCED, KYOTO)],
+        quality=synthetic_quality(BORN_IN, "OUT", TOKYO)) == (
+            "L0", "NONE", "NONE")
+
+
+def test_b13_t2_a_different_observed_object_is_l1_under_a_multi_valued_predicate():
+    """An OBSERVED alternative value, and nothing stronger.
+
+    ``dbp:influenced`` is multi-valued, so the candidate may hold the Answer's
+    object as well without this snapshot recording it. L1 reports what the
+    snapshot shows; it does not establish that the candidate could not also hold
+    the claim object, which is why the strength lives on the exclusion-basis axis.
+    """
+    assert classify_one(
+        name="alternative",
+        triples=[(DISTRACTOR, INFLUENCED, KYOTO), (DISTRACTOR, INFLUENCED, TOKYO)],
+        quality=synthetic_quality(INFLUENCED, "OUT", HERACLITUS)) == (
+            "L1", "NONE", "NONE")
+
+
+@pytest.mark.parametrize("direction,other", [("OUT", "IN"), ("IN", "OUT")])
+def test_b13_t2_in_and_out_object_sets_never_mix(direction, other):
+    """An object observed under ``(p, OUT)`` may never answer ``(p, IN)``.
+
+    The candidate holds the claim object in the OTHER direction only. If the two
+    sets merged, that would read as support and silence the fact; keeping them
+    apart makes it the absence it is. ``dbp:influenced`` OUT is "influenced" and
+    IN is "was influenced by" — different relations, different extensions,
+    different verbalizations.
+    """
+    triples = ([(DISTRACTOR, INFLUENCED, TOKYO)] if other == "OUT"
+               else [(TOKYO, INFLUENCED, DISTRACTOR)])
+    assert classify_one(
+        name=f"direction-{direction}", triples=triples,
+        quality=synthetic_quality(INFLUENCED, direction, TOKYO)) == (
+            "L0", "NONE", "NONE")
+
+
+def test_b13_t2_the_two_directions_are_gathered_into_separate_keys():
+    """The same predicate and the same counterpart, both ways, stay two keys."""
+    observed = candidate_objects_from_local_kg(
+        DISTRACTOR, local_kg=SyntheticKG("both-directions", [
+            (DISTRACTOR, INFLUENCED, TOKYO), (KYOTO, INFLUENCED, DISTRACTOR)]))
+    assert observed[(INFLUENCED, "OUT")] == (TOKYO,)
+    assert observed[(INFLUENCED, "IN")] == (KYOTO,)
+
+
+def test_b13_t2_a_candidate_missing_from_the_graph_raises_instead_of_l0():
+    """"Absent from the graph" is NOT "present and recording nothing".
+
+    Returning an empty object set for an unresolvable candidate would turn a
+    roster/graph mismatch into the strongest L0 profile the model can produce,
+    against every Answer fact at once, and every one of those levels would be
+    fabricated. So it raises, naming the URI.
+    """
+    with pytest.raises(InputContractError) as error:
+        classify_one(
+            name="missing-candidate", triples=[(DISTRACTOR, BORN_IN, TOKYO)],
+            quality=synthetic_quality(BORN_IN, "OUT", TOKYO),
+            candidate_uri="http://dbpedia.org/resource/Not_A_Node")
+    message = str(error.value)
+    assert "Not_A_Node" in message
+    assert "NOT an empty observed object set" in message
+
+
+def test_b13_t2_scoped_empirical_annotates_an_existing_l1():
+    """An ACTIVE scoped rule strengthens the READING of an L1; the level is L1.
+
+    The rule is a local, empirical observation over one named scope — never
+    universal functionality, and never described as such.
+    """
+    rule = EvidenceRule(
+        rule_id="EMP_SV_SYNTHETIC_OUT_birthPlace_MS5_V1",
+        rule_type="EMPIRICALLY_SINGLE_VALUED_IN_SCOPE",
+        predicate_uri=BORN_IN, direction="OUT", scope=SYNTHETIC_SCOPE,
+        scope_kind="SELECTED_LOCAL_CLASS_CANDIDATE_POOL",
+        required_evidence=("observed_support >= 5",), minimum_support=5,
+        observed_support=6, maximum_observed_cardinality=1,
+        observed_violation_count=0, source="a B1.3 semantic-safety test",
+        provenance="synthetic", version="test", activation_status="ACTIVE",
+        empirical_label="EMPIRICAL_AND_SCOPED_NOT_UNIVERSAL")
+    assert classify_one(
+        name="annotated", triples=[(DISTRACTOR, BORN_IN, KYOTO)],
+        quality=synthetic_quality(BORN_IN, "OUT", TOKYO),
+        rulebook=empty_rulebook().with_rules([rule])) == (
+            "L1", "SCOPED_EMPIRICAL", "NONE")
+
+
+def test_b13_t2_scoped_empirical_never_creates_a_level_out_of_an_absence():
+    """The SAME active rule against a candidate with nothing observed: still L0.
+
+    An annotation may never create, upgrade or rescue a level, and
+    ``L0 + SCOPED_EMPIRICAL`` is invalid by EVIDENCE_TAXONOMY_V1.md §4.
+    """
+    rule = EvidenceRule(
+        rule_id="EMP_SV_SYNTHETIC_OUT_birthPlace_MS5_V1",
+        rule_type="EMPIRICALLY_SINGLE_VALUED_IN_SCOPE",
+        predicate_uri=BORN_IN, direction="OUT", scope=SYNTHETIC_SCOPE,
+        scope_kind="SELECTED_LOCAL_CLASS_CANDIDATE_POOL",
+        required_evidence=("observed_support >= 5",), minimum_support=5,
+        observed_support=6, maximum_observed_cardinality=1,
+        observed_violation_count=0, source="a B1.3 semantic-safety test",
+        provenance="synthetic", version="test", activation_status="ACTIVE",
+        empirical_label="EMPIRICAL_AND_SCOPED_NOT_UNIVERSAL")
+    assert classify_one(
+        name="annotated-absence", triples=[(DISTRACTOR, INFLUENCED, KYOTO)],
+        quality=synthetic_quality(BORN_IN, "OUT", TOKYO),
+        rulebook=empty_rulebook().with_rules([rule])) == ("L0", "NONE", "NONE")
+
+
+def test_b13_t2_a_rule_derived_for_another_scope_does_not_fire():
+    """Scope is part of the match: a rule is LOCAL to the class it was derived in.
+
+    Its scope note says it claims nothing about the predicate outside that pool,
+    so silently applying it elsewhere would publish a stronger reading than was
+    ever observed.
+    """
+    rule = EvidenceRule(
+        rule_id="EMP_SV_OTHER_OUT_birthPlace_MS5_V1",
+        rule_type="EMPIRICALLY_SINGLE_VALUED_IN_SCOPE",
+        predicate_uri=BORN_IN, direction="OUT",
+        scope="http://dbpedia.org/resource/Category:Another_scope",
+        scope_kind="SELECTED_LOCAL_CLASS_CANDIDATE_POOL",
+        required_evidence=("observed_support >= 5",), minimum_support=5,
+        observed_support=6, maximum_observed_cardinality=1,
+        observed_violation_count=0, source="a B1.3 semantic-safety test",
+        provenance="synthetic", version="test", activation_status="ACTIVE",
+        empirical_label="EMPIRICAL_AND_SCOPED_NOT_UNIVERSAL")
+    assert classify_one(
+        name="other-scope", triples=[(DISTRACTOR, BORN_IN, KYOTO)],
+        quality=synthetic_quality(BORN_IN, "OUT", TOKYO),
+        rulebook=empty_rulebook().with_rules([rule])) == ("L1", "NONE", "NONE")
+
+
+# --------------------------------------------------------------------------
+# B1.3-T3. Alignment, delegation and the phase boundary
+# --------------------------------------------------------------------------
+
+
+def test_b13_t3_the_three_tuples_are_aligned_to_the_roster_order():
+    """levels[i] describes candidate i, in the order the roster was given.
+
+    Built by position, never by ``zip()``: a zip against a short sequence would
+    stop early and silently re-point every later level at the wrong candidate.
+    """
+    graph = SyntheticKG("aligned", [
+        (ANSWER, BORN_IN, TOKYO),
+        ("http://dbpedia.org/resource/D1", BORN_IN, TOKYO),      # supports
+        ("http://dbpedia.org/resource/D2", BORN_IN, KYOTO),      # alternative
+        ("http://dbpedia.org/resource/D3", INFLUENCED, KYOTO)])  # nothing at κ
+    candidates = tuple(
+        Candidate(rank=rank, score=1.0 / rank,
+                  uri=f"http://dbpedia.org/resource/D{rank}")
+        for rank in (1, 2, 3))
+    facts = levels_for_candidates(
+        (synthetic_quality(BORN_IN, "OUT", TOKYO),), candidates,
+        local_kg=graph, semantic_index=containment_index(),
+        rulebook=empty_rulebook(), scope=SYNTHETIC_SCOPE)
+    assert facts[0].levels == ("NOT_COVERED", "L1", "L0")
+    assert facts[0].exclusion_bases == ("NONE", "NONE", "NONE")
+    assert facts[0].granularity_risks == ("NONE", "NONE", "NONE")
+
+
+def test_b13_t3_the_quality_record_is_carried_through_untouched():
+    """B1.3 adds three axes and re-derives no quality field.
+
+    ``eligible`` in particular is the frozen R1 hard filter, decided in B1.2 and
+    consumed here as already decided.
+    """
+    quality = synthetic_quality(BORN_IN, "OUT", TOKYO)
+    ineligible = replace(quality, eligible=False)
+    facts = levels_for_candidates(
+        (quality, ineligible),
+        (Candidate(rank=1, score=0.5, uri=DISTRACTOR),),
+        local_kg=SyntheticKG("carried", [(DISTRACTOR, BORN_IN, KYOTO)]),
+        semantic_index=containment_index(), rulebook=empty_rulebook(),
+        scope=SYNTHETIC_SCOPE)
+    assert facts[0].quality is quality
+    # An ineligible fact keeps its position and is still classified: dropping it
+    # would move every later fact index and hide what the hard filter removed.
+    assert facts[1].quality is ineligible
+    assert [fact.levels for fact in facts] == [("L1",), ("L1",)]
+
+
+def test_b13_t3_every_produced_value_is_inside_the_frozen_vocabulary():
+    """Invariant 2 restated on the produced axes, not merely on read ones."""
+    graph = SyntheticKG("vocabulary", [
+        (DISTRACTOR, BORN_IN, KYOTO), (DISTRACTOR, INFLUENCED, TOKYO)])
+    facts = levels_for_candidates(
+        (synthetic_quality(BORN_IN, "OUT", TOKYO),
+         synthetic_quality(INFLUENCED, "OUT", TOKYO)),
+        (Candidate(rank=1, score=0.5, uri=DISTRACTOR),),
+        local_kg=graph, semantic_index=containment_index(),
+        rulebook=empty_rulebook(), scope=SYNTHETIC_SCOPE)
+    for fact in facts:
+        assert set(fact.levels) <= ALLOWED_EVIDENCE_LEVELS
+        assert set(fact.exclusion_bases) <= ALLOWED_EXCLUSION_BASES
+        assert set(fact.granularity_risks) <= ALLOWED_GRANULARITY_RISKS
+        assert [pair for pair in FORBIDDEN_LEVEL_BASIS_COMBINATIONS
+                if pair in set(zip(fact.levels, fact.exclusion_bases))] == []
+
+
+def test_b13_t3_no_evidence_rule_is_restated_in_the_adapter_source():
+    """The decision tree stays upstream. B1.3 gathers inputs and copies verdicts.
+
+    Reason codes and proof internals are upstream audit information and are not
+    part of the ``AnswerCase`` contract, so they are not copied out either.
+    """
+    text = INPUTS_SOURCE.read_text("utf-8")
+    for banned in ("build_l2_proof", "is_descendant_of", "SemanticIndexCacheKey",
+                   "build_semantic_index", "load_semantic_index_cache",
+                   "derive_empirical_single_valued_rules",
+                   "observe_scope_cardinalities", "reason_code",
+                   "L2_REASON_FOR_RULE_TYPE", "minimum_support"):
+        assert banned not in text, banned
+
+
+def test_b13_t3_the_adapter_still_imports_only_frozen_offline_modules():
+    """B1.3 widens the AST allowlist by nothing: ``rationale_v3`` was already in."""
+    allowed = {"__future__", "json", "pathlib", "typing", "mcq_core",
+               "rationale_v3", "selection"}
+    tree = ast.parse(INPUTS_SOURCE.read_text("utf-8"))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported.add((node.module or "").split(".")[0])
+    assert imported <= allowed, sorted(imported - allowed)
+
+
+def test_b13_t3_the_frozen_kernel_is_untouched_by_b13():
+    """Restated in the B1.3 group: step 3 adds a caller, not a kernel change."""
+    assert hashlib.sha256(CORE_SOURCE.read_bytes()).hexdigest() == FROZEN_KERNEL_SHA256
+
+
+def test_b13_t3_b14_has_not_been_started():
+    """No distractor selection, no set cover, no Einstein roster in this module.
+
+    ``build_case()`` stays imported and stays used by B1.1; what B1.4 would add
+    is the step AFTER it — calling the kernel — and no name from that step
+    appears anywhere in the adapter.
+    """
+    text = INPUTS_SOURCE.read_text("utf-8")
+    for banned in ("build_and_select", "select_distractors", "Selection",
+                   "set_cover", "setcover", "PoolPolicy", "force_pool"):
+        assert banned not in text, banned
+
+
+@requires_pinned_kg
+def test_b13_t3_albert_einstein_still_has_no_candidate_roster(pinned_kg,
+                                                              quality_policy):
+    """66 facts and still nothing to classify them against.
+
+    A roster for Albert Einstein needs an approved class decision and a class
+    member list, and the class member list is the one true network dependency in
+    this project. B1.3 does not manufacture one.
+    """
+    facts = answer_facts_from_local_kg(EINSTEIN, local_kg=pinned_kg,
+                                       quality_policy=quality_policy)
+    assert len(facts) == 66
+    with pytest.raises(AnswerNotFoundError):
+        case_from_frozen_records(EINSTEIN, handoff_path=HANDOFF,
+                                 evidence_path=EVIDENCE)
+    # levels_for_candidates() with no candidates produces no evidence at all,
+    # rather than a default level per fact. There is nothing to be evidence
+    # against, and a level invented here would be a level from nowhere.
+    built = levels_for_candidates(facts, (), local_kg=pinned_kg,
+                                  semantic_index=missing_index(),
+                                  rulebook=empty_rulebook(),
+                                  scope="http://dbpedia.org/resource/Category:None")
+    assert [fact.levels for fact in built] == [()] * len(facts)

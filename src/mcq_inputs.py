@@ -1,5 +1,6 @@
-"""Journal 2 Phase-B input adapter: frozen ``AnswerCase`` records (B1.1) plus the
-Answer's own observed facts read from the pinned local KG (B1.2).
+"""Journal 2 Phase-B input adapter: frozen ``AnswerCase`` records (B1.1), the
+Answer's own observed facts read from the pinned local KG (B1.2), and the aligned
+per-(fact, candidate) evidence axes obtained from the frozen R1 classifier (B1.3).
 
 WHY THIS MODULE EXISTS
 ----------------------
@@ -14,7 +15,7 @@ evidence levels and per-fact quality fields are **already decided**, and consume
 them as opaque attributes.
 
 Somebody has to discharge that upstream obligation. This module discharges it in
-two instalments.
+three instalments.
 
 **B1.1 — frozen records.** For the Answers whose levels and quality fields were
 already computed and written to disk by the frozen Prompt-8D ranking run and the
@@ -29,13 +30,26 @@ the frozen R1 fact-quality/Answer-leakage fields to each fact. That is a strictl
 per-Answer step: it is the half of the upstream obligation that needs no
 candidate roster.
 
+**B1.3 — the other half, which needs one.** :func:`levels_for_candidates` takes
+those Answer facts together with an already-ranked candidate roster, gathers each
+candidate's observed objects ``O_d(κ)`` under exactly the same
+predicate-direction key from the same pinned graph, and hands every
+(Answer fact, candidate) pair to the frozen R1
+``classify_fact_against_candidate()``. The three verdicts it returns — evidence
+level, exclusion basis, granularity risk — are copied onto an ``AnswerFact`` and
+aligned to the ranked candidate order. Not one of them is decided here.
+
 WHAT THIS MODULE MUST NEVER BECOME
 ----------------------------------
-It is not the place for evidence classification, quality *policy*, leakage
-*rules*, semantic closure, class selection or LRoleSim computation. Those stay
-upstream, in their own frozen modules, and their outputs arrive here as records
-or as function calls into the frozen implementation — B1.2 calls
-``rationale_v3.quality.assess_fact_quality()`` and reimplements none of it.
+It is not the place for evidence *rules*, quality *policy*, leakage *rules*,
+semantic closure, class selection or LRoleSim computation. Those stay upstream,
+in their own frozen modules, and their outputs arrive here as records or as
+function calls into the frozen implementation — B1.2 calls
+``rationale_v3.quality.assess_fact_quality()`` and B1.3 calls
+``rationale_v3.evidence.classify_fact_against_candidate()``, and neither
+reimplements any part of what it calls. In particular B1.3 does **not** re-run,
+re-tune or second-guess the B1.2 quality verdict: ``FactQuality.eligible`` is the
+frozen R1 hard filter and is consumed as already decided.
 
 The KG access added in B1.2 is deliberately narrow: this module never opens,
 builds, repairs or caches a local-KG file. It receives an **already-loaded**
@@ -119,8 +133,9 @@ manufactured. Reading the policy file is a decision for the human author.
 
 TERMINOLOGY — the authority is ``docs/context/EVIDENCE_TAXONOMY_V1.md``
 ------------------------------------------------------------------------
-This module **reads** evidence levels. It never derives one, and it never
-rewrites one.
+This module **reads** evidence levels in B1.1 and **obtains** them in B1.3 by
+calling the frozen R1 classifier. It never states an evidence rule of its own, and
+it never rewrites a level it was given.
 
 ``NOT_COVERED``
     The candidate *supports* the Answer proposition, so the fact distinguishes
@@ -147,9 +162,12 @@ rewrites one.
     approved rule would not need this file changed.
 
 ``SCOPED_EMPIRICAL`` is an annotation on an existing L1, never a fourth level.
-``CLOSURE_RAN`` on a frozen record means **only that the semantic check
-executed** — it is not a statement that a semantic relation was found — and this
-module neither reads it nor acts on it.
+``CLOSURE_RAN`` means **only that the semantic check executed** — it is not a
+statement that a semantic relation was found. It is a fourth axis,
+``semantic_check_status``, which is not an ``AnswerCase`` field: this module
+neither reads it from a frozen record nor copies it out of a classification, and
+what it does carry from an unavailable check is the granularity risk
+``UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE``, which never moves a level.
 
 Open-world reminder, carried through everything below::
 
@@ -166,11 +184,16 @@ direction it reads and never groups by predicate alone.
 
 OFFLINE BY CONSTRUCTION
 -----------------------
-Imports are ``json``, ``pathlib``, ``typing``, ``mcq_core`` and the three frozen
-offline helpers B1.2 delegates to — the R1 quality assessor, the R1 URI
-normalizer and the Prompt-8D one-hop edge enumeration. No network, no SPARQL
+Imports are ``json``, ``pathlib``, ``typing``, ``mcq_core`` and the five frozen
+offline helpers this module delegates to — the R1 quality assessor, the R1 URI
+normalizer and the Prompt-8D one-hop edge enumeration for B1.2, plus the R1
+proposition type and the R1 evidence classifier for B1.3. No network, no SPARQL
 client, no embedding model, no NLP toolkit, no WordNet, no LLM, no file-format
-parser of its own, and no import of any test module.
+parser of its own, and no import of any test module. The semantic index and the
+evidence rulebook are **arguments**, never built here: constructing either one
+requires the traversal policy, the cache key and the scope derivation that belong
+upstream, and inventing a local substitute for either would be the single easiest
+way to silently reclassify the whole pilot.
 """
 
 from __future__ import annotations
@@ -189,6 +212,19 @@ from mcq_core import AnswerCase, AnswerFact, Candidate, FactQuality, build_case
 from rationale_v3.quality import assess_fact_quality
 from rationale_v3.semantic_relations import normalize_uri
 from selection.observed_facts import DIRECTION_LABEL, observed_edge_set
+# The two frozen upstream behaviours B1.3 reuses instead of reimplementing.
+# `RationaleProposition` IS the R1 proposition object — the assertion that an
+# entity stands in relation κ = (predicate_uri, direction) to the claim object —
+# and it validates its own URIs and qualifier state on construction.
+# `classify_fact_against_candidate` IS the single place in this project where an
+# evidence level is decided: it runs the R1 support test before any rule, applies
+# the R1 semantic index, applies the supplied rulebook, and returns the level,
+# the exclusion basis and the granularity risk together. B1.3 calls it once per
+# (Answer fact, candidate) pair and copies its three verdicts; it reproduces none
+# of its decision tree, because a second copy of a scientific rule is a second
+# rule that can drift from the first.
+from rationale_v3.contracts import RationaleProposition
+from rationale_v3.evidence import classify_fact_against_candidate
 
 # --------------------------------------------------------------------------
 # Frozen vocabularies and pinned parameters
@@ -723,19 +759,32 @@ def case_from_frozen_records(
 # --------------------------------------------------------------------------
 
 
-def answer_node_index(answer_uri: str, local_kg) -> int:
-    """The pinned local KG's node index for ``answer_uri``, or a clear failure.
+def node_index_or_none(uri: str, local_kg):
+    """The pinned local KG's node index for ``uri``, or ``None``.
 
     The pinned graph keys its URIs in the angle-bracket spelling ``<http://…>``
     that the graph build wrote, while every frozen record, every policy file and
     every caller spells them plain. Both spellings are tried, bracketed first, so
     a caller never has to know which one a particular build used, and neither
     spelling is silently preferred when only one exists.
+
+    Returning ``None`` rather than raising is deliberate: the two callers below
+    report a missing node very differently — a missing Answer is
+    ``AnswerNotFoundError``, a missing candidate is an input-contract failure —
+    and neither may be reported as "present but with nothing observed".
     """
-    for spelling in ("<" + answer_uri + ">", answer_uri):
+    for spelling in ("<" + uri + ">", uri):
         index = local_kg.index_for_uri_or_none(spelling)
         if index is not None:
             return index
+    return None
+
+
+def answer_node_index(answer_uri: str, local_kg) -> int:
+    """The pinned local KG's node index for ``answer_uri``, or a clear failure."""
+    index = node_index_or_none(answer_uri, local_kg)
+    if index is not None:
+        return index
     raise AnswerNotFoundError(
         f"{answer_uri} is not a node of the pinned local KG, so it has no "
         f"observed one-hop facts there; this module reports that rather than "
@@ -838,4 +887,212 @@ def answer_facts_from_local_kg(
             token_count=assessed.token_count,
             template_id=assessed.template_id,
         ))
+    return tuple(facts)
+
+
+# --------------------------------------------------------------------------
+# Phase B1.3 — per-(fact, candidate) evidence, delegated to the frozen R1
+# --------------------------------------------------------------------------
+#
+# WHY THIS STEP EXISTS AT ALL
+#   B1.2 answers "what does the pinned snapshot record about the Answer?". That
+#   question has no candidate in it, so it cannot produce an evidence level: a
+#   level is a property of the ORDERED PAIR (Answer fact, candidate) and says how
+#   that fact distinguishes the Answer from that candidate. B1.3 supplies the
+#   missing half — the candidate's own observations under the same key — and then
+#   asks the frozen R1 classifier, which owns the decision.
+#
+# WHY B1.3 REUSES R1 RATHER THAN REWRITING IT
+#   The R1 classifier is the audited implementation behind the published pilot:
+#   14,860 classified incidences, an evidence policy file with its own SHA-256, a
+#   semantic index with a checked cache key. Re-deriving its decision tree here
+#   would create a second implementation of the same science, and the two would
+#   agree only until one of them was edited. So this module gathers inputs,
+#   delegates, and copies three verdicts. It contains no level rule, no support
+#   test, no traversal and no threshold of its own.
+#
+# WHAT `O_d(κ)` MEANS
+#   κ = (predicate_uri, direction) is the predicate-direction key, and `O_d(κ)`
+#   is the set of objects the pinned snapshot records for candidate `d` under
+#   exactly that key. It is an OBSERVATION about one snapshot, never a claim
+#   about the world: DBpedia is open-world, so
+#
+#       (d, p, o) ∉ K   does NOT imply   ¬p(d, o)
+#
+# WHY IN AND OUT ARE SEPARATE KEYS
+#   `(Answer, p, x)` is an OUT fact and `(x, p, Answer)` is an IN fact. They are
+#   different relations with different extensions and different verbalizations —
+#   `dbp:influences` OUT is "influenced" and IN is "was influenced by" — so an
+#   object observed under `(p, OUT)` must never enter `(p, IN)` or the reverse.
+#   Merging them would compare an Answer's out-edge against a candidate's
+#   in-edge and report the resulting mismatch as evidence.
+
+
+def candidate_objects_from_local_kg(candidate_uri: str, *, local_kg) -> dict:
+    """``{κ: (object_uri, …)}`` — every ``O_d(κ)`` of one candidate.
+
+    Built once per candidate and reused across every Answer fact, because the
+    enumeration is the expensive half and κ is what the classifier looks up.
+
+    WHY A MISSING CANDIDATE NODE RAISES INSTEAD OF BECOMING L0
+        "the candidate is absent from the graph" and "the candidate is present
+        but records nothing under this key" are two different observations, and
+        only the second is `L0`. Returning an empty mapping for an unknown URI
+        would silently turn a roster/graph mismatch — a candidate that the local
+        mapping stage never admitted — into a page of absence-only evidence
+        against every single Answer fact, which is the strongest L0 profile the
+        model can produce and would be entirely fabricated. So it is an input
+        error, reported with the URI that could not be resolved.
+
+    Enumeration, direction labelling and URI normalization are the same frozen
+    helpers B1.2 uses, so the objects gathered here are drawn from exactly the
+    same one-hop edge set, under exactly the same identity, as the Answer's own
+    facts. A predicate or counterpart index that does not resolve to a URI is not
+    URI-valued as far as this snapshot can tell; the frozen Prompt-8D enumeration
+    skipped such an edge rather than emitting a fabricated URI, and this
+    reconstruction agrees with it.
+    """
+    node = node_index_or_none(candidate_uri, local_kg)
+    if node is None:
+        raise InputContractError(
+            f"candidate {candidate_uri} is not a node of the pinned local KG, so "
+            f"O_d(kappa) cannot be observed for it; this is an input error and "
+            f"NOT an empty observed object set, because 'absent from the graph' "
+            f"is a different observation from 'present with nothing recorded "
+            f"under this key', and only the second one is L0")
+
+    grouped: dict[tuple[str, str], set[str]] = {}
+    for predicate_index, direction_code, counterpart_index in observed_edge_set(
+            node, local_kg, use_in=True):
+        predicate = local_kg.index_url.get(predicate_index)
+        counterpart = local_kg.index_url.get(counterpart_index)
+        if predicate is None or counterpart is None:
+            continue
+        # The direction is part of the key, never a field beside it: an OUT
+        # object and an IN subject never share a bucket.
+        key = (normalize_uri(predicate), DIRECTION_LABEL[direction_code])
+        grouped.setdefault(key, set()).add(normalize_uri(counterpart))
+    return {key: tuple(sorted(objects)) for key, objects in sorted(grouped.items())}
+
+
+def levels_for_candidates(
+    answer_facts: Sequence[FactQuality],
+    candidates: Sequence[Candidate],
+    *,
+    local_kg,
+    semantic_index,
+    rulebook,
+    scope: str,
+) -> tuple[AnswerFact, ...]:
+    """Build aligned ``AnswerFact`` records for one Answer against one roster.
+
+    For each Answer fact and each candidate:
+
+    1. gather the candidate's OBSERVED objects under exactly the same
+       ``(predicate_uri, direction)`` key;
+    2. call the frozen R1 classifier;
+    3. copy its evidence level, exclusion basis and granularity risk;
+    4. align the three tuples to the ranked candidate order.
+
+    ``answer_facts`` are the ``FactQuality`` records B1.2 produced: their
+    ``eligible`` verdict is the frozen R1 hard filter and is consumed here as
+    ALREADY DECIDED. B1.3 re-runs no quality rule, no leakage rule and no
+    blacklist, and it filters nothing out — an ineligible fact keeps its position
+    so that fact indices stay stable and a rejected fact remains inspectable.
+
+    ``semantic_index`` and ``rulebook`` are already built and already keyed;
+    ``scope`` is the class the candidate pool was drawn from, and the rulebook is
+    consulted per scope, so passing a scope the rules were not derived for simply
+    matches no rule rather than silently matching another class's.
+
+    THE FOUR OUTCOMES, AND WHO DECIDES THEM
+        The classifier decides all of them. Restated here only so a reader of
+        this module knows what it is delegating, with the authority being
+        ``docs/context/EVIDENCE_TAXONOMY_V1.md``:
+
+        ``NOT_COVERED``
+            The candidate SUPPORTS the Answer proposition — through exact object
+            equality, through a trusted canonical/redirect equivalence, or
+            because an observed candidate object lies UNDER the claim object in
+            the allowlisted containment hierarchy, so asserting it entails the
+            Answer's more general claim. Semantic support produces NOT_COVERED
+            rather than a weak level because the fact then distinguishes nobody
+            at that position: it sets no coverage bit at any threshold. This test
+            runs before every rule, so a supported fact can never be re-read as
+            absence or as an observed alternative.
+        ``L0``
+            ``O_d(κ) = ∅``, and nothing else, ever. Snapshot absence only.
+        ``L1``
+            ``O_d(κ) ≠ ∅`` with no support. An observed alternative value.
+        ``L2``
+            Requires a machine-checkable proof. The frozen policy activates no L2
+            rule (``l2_rules`` is empty), so zero L2 is the correct offline
+            outcome here, not a gap.
+
+    WHY CLAIM-UNDER-CANDIDATE IS A RISK AND NOT AN EXCLUSION
+        The reverse containment — the Answer says *Tokyo* and the candidate says
+        *Japan* — does NOT mean the candidate supports the proposition, and it
+        does NOT mean the candidate contradicts it either. The two statements are
+        recorded at different granularities, so the apparent contrast may be an
+        artefact of how the two articles were written. The classifier keeps the
+        observational level it already decided and records
+        ``CLAIM_OBJECT_UNDER_CANDIDATE_OBJECT`` on the separate granularity axis,
+        where it orders against the fact and blocks main-corpus eligibility
+        without pretending to be evidence either way.
+
+    WHY AN UNAVAILABLE SEMANTIC INDEX STILL LEAVES L1 AS L1
+        "we did not look" is not "we found nothing". When the index cannot run,
+        the candidate's observed alternative value is still observed; only the
+        question of whether it stands in a containment relation to the claim
+        object is unanswered. Downgrading to L0 would relabel a positive
+        observation as an absence — a strictly false statement about the
+        snapshot — so the level is preserved and the doubt is recorded as
+        ``UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE``.
+
+    ``SCOPED_EMPIRICAL`` is likewise an annotation on an existing L1 and never a
+    fourth level: it is derived upstream, arrives inside ``rulebook``, and can
+    neither create, upgrade nor rescue a level.
+    """
+    # O_d(κ) once per candidate, in roster order. Positional, never zipped: a
+    # zip() against a short sequence would stop early and silently align every
+    # later evidence level to the wrong candidate.
+    observed_by_position = [candidate_objects_from_local_kg(
+        candidate.uri, local_kg=local_kg) for candidate in candidates]
+
+    facts: list[AnswerFact] = []
+    for quality in answer_facts:
+        # The R1 proposition: this entity stands in relation κ to the claim
+        # object. claim_object_uri == source_object_uri in R1 — no object is
+        # generalised to an ancestor for verbalization — and nothing here invents
+        # a qualifier the infobox source does not carry.
+        proposition = RationaleProposition(
+            predicate_uri=quality.predicate_uri,
+            direction=quality.direction,
+            source_object_uri=quality.counterpart_uri,
+            claim_object_uri=quality.counterpart_uri)
+        levels: list[str] = []
+        bases: list[str] = []
+        risks: list[str] = []
+        for position, candidate in enumerate(candidates):
+            # `.get(key, ())` is the ONLY place an empty object set is produced,
+            # and it means exactly one thing: this candidate node is in the graph
+            # and records nothing under this κ. A candidate that is not in the
+            # graph never reaches here — it raised above.
+            classified = classify_fact_against_candidate(
+                proposition=proposition,
+                candidate_uri=candidate.uri,
+                candidate_objects=observed_by_position[position].get(
+                    quality.predicate_direction_key, ()),
+                semantic_index=semantic_index,
+                rulebook=rulebook,
+                scope=scope)
+            levels.append(classified.level)
+            bases.append(classified.exclusion_basis)
+            risks.append(classified.granularity_risk_status)
+        fact = AnswerFact(quality=quality, levels=tuple(levels),
+                          exclusion_bases=tuple(bases),
+                          granularity_risks=tuple(risks))
+        validate_fact_alignment(fact, len(candidates),
+                                f"{quality.identity} against the ranked roster")
+        facts.append(fact)
     return tuple(facts)
