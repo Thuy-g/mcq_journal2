@@ -1,6 +1,8 @@
 """Journal 2 Phase-B input adapter: frozen ``AnswerCase`` records (B1.1), the
-Answer's own observed facts read from the pinned local KG (B1.2), and the aligned
-per-(fact, candidate) evidence axes obtained from the frozen R1 classifier (B1.3).
+Answer's own observed facts read from the pinned local KG (B1.2), the aligned
+per-(fact, candidate) evidence axes obtained from the frozen R1 classifier
+(B1.3), and the thin orchestration that connects those to the frozen Phase-A2
+selection kernel (B1.4).
 
 WHY THIS MODULE EXISTS
 ----------------------
@@ -38,6 +40,15 @@ predicate-direction key from the same pinned graph, and hands every
 ``classify_fact_against_candidate()``. The three verdicts it returns — evidence
 level, exclusion basis, granularity risk — are copied onto an ``AnswerFact`` and
 aligned to the ranked candidate order. Not one of them is decided here.
+
+**B1.4 — putting the four owners in a row.** :func:`build_and_select` validates
+the supplied roster and its provenance, calls B1.2, calls B1.3, calls
+``mcq_core.build_case()`` and calls ``mcq_core.select_distractors()``. It states
+no scientific rule at all: every step it performs already has exactly one owner,
+and the search scope, the set cover, the rationale ranking and the six-key
+objective remain entirely the kernel's. See the B1.4 section comment at the
+bottom of this file for why a roster needs provenance it cannot carry itself, and
+why a run with no selection is a measurement rather than a failure to repair.
 
 WHAT THIS MODULE MUST NEVER BECOME
 ----------------------------------
@@ -184,10 +195,12 @@ direction it reads and never groups by predicate alone.
 
 OFFLINE BY CONSTRUCTION
 -----------------------
-Imports are ``json``, ``pathlib``, ``typing``, ``mcq_core`` and the five frozen
-offline helpers this module delegates to — the R1 quality assessor, the R1 URI
-normalizer and the Prompt-8D one-hop edge enumeration for B1.2, plus the R1
-proposition type and the R1 evidence classifier for B1.3. No network, no SPARQL
+Imports are ``json``, ``math``, ``pathlib``, ``typing``, ``mcq_core`` and the
+five frozen offline helpers this module delegates to — the R1 quality assessor,
+the R1 URI normalizer and the Prompt-8D one-hop edge enumeration for B1.2, plus
+the R1 proposition type and the R1 evidence classifier for B1.3. B1.4 adds no
+import beyond ``math`` and three more names from the frozen kernel it already
+imported. No network, no SPARQL
 client, no embedding model, no NLP toolkit, no WordNet, no LLM, no file-format
 parser of its own, and no import of any test module. The semantic index and the
 evidence rulebook are **arguments**, never built here: constructing either one
@@ -199,10 +212,22 @@ way to silently reclassify the whole pilot.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
-from mcq_core import AnswerCase, AnswerFact, Candidate, FactQuality, build_case
+from mcq_core import (
+    DEFAULT_POOL_POLICY,
+    AnswerCase,
+    AnswerFact,
+    Candidate,
+    FactQuality,
+    PoolPolicy,
+    Selection,
+    build_case,
+    canonical_record,
+    select_distractors,
+)
 # The three frozen upstream behaviours B1.2 reuses instead of reimplementing.
 # `assess_fact_quality` IS the R1 hard eligibility filter and the R1 deterministic
 # Answer-leakage rule; `normalize_uri` is the exact URI normalization R1 applied
@@ -426,6 +451,35 @@ def find_evidence_records(
 # --------------------------------------------------------------------------
 
 
+def validate_pinned_lrolesim_execution(source: Mapping) -> None:
+    """Invariants 5 and 8 on ANY mapping that claims to record an LRoleSim run.
+
+    Split out of :func:`validate_lrolesim_provenance` in B1.4 so that the two
+    callers share one implementation of the same scientific check. B1.1 applies
+    it to a frozen Prompt-8D handoff record; B1.4 applies it to the provenance a
+    live caller supplies alongside an already-ranked roster. A second copy of
+    this check would be a second definition of "which ranker the paper used".
+    """
+    # Invariant 8 is tested BEFORE invariant 5, even though a legacy ranker name
+    # would also fail the pinned-path equality below. A substituted ranker is a
+    # scientifically distinct failure from a mistyped beta, and the reviewer must
+    # be told which one happened rather than reading "expected lrolesim_m1…".
+    for name in ("ranker_name", "measure"):
+        text = str(source[name]).casefold()
+        for token in LEGACY_RANKER_TOKENS:
+            if token in text:
+                raise InputContractError(
+                    f"invariant 8 (no legacy Overlap ranking): {name}="
+                    f"{source[name]!r} names a legacy overlap measure; a "
+                    f"legacy Overlap ranking must never populate Candidate.rank "
+                    f"or Candidate.score")
+    observed = {name: source[name] for name in PINNED_LROLESIM_EXECUTION}
+    if observed != PINNED_LROLESIM_EXECUTION:
+        raise InputContractError(
+            f"invariant 5 (pinned LRoleSim execution path): expected "
+            f"{PINNED_LROLESIM_EXECUTION}, found {observed}")
+
+
 def validate_lrolesim_provenance(ranking_row: Mapping) -> None:
     """Invariants 5 and 8: the pinned execution path, and no Overlap ranking.
 
@@ -435,24 +489,7 @@ def validate_lrolesim_provenance(ranking_row: Mapping) -> None:
     the recorded execution path to be exactly the pinned one.
     """
     require_fields(ranking_row, RANKING_RECORD_FIELDS, "Prompt-8D ranking record")
-    # Invariant 8 is tested BEFORE invariant 5, even though a legacy ranker name
-    # would also fail the pinned-path equality below. A substituted ranker is a
-    # scientifically distinct failure from a mistyped beta, and the reviewer must
-    # be told which one happened rather than reading "expected lrolesim_m1…".
-    for name in ("ranker_name", "measure"):
-        text = str(ranking_row[name]).casefold()
-        for token in LEGACY_RANKER_TOKENS:
-            if token in text:
-                raise InputContractError(
-                    f"invariant 8 (no legacy Overlap ranking): {name}="
-                    f"{ranking_row[name]!r} names a legacy overlap measure; a "
-                    f"legacy Overlap ranking must never populate Candidate.rank "
-                    f"or Candidate.score")
-    observed = {name: ranking_row[name] for name in PINNED_LROLESIM_EXECUTION}
-    if observed != PINNED_LROLESIM_EXECUTION:
-        raise InputContractError(
-            f"invariant 5 (pinned LRoleSim execution path): expected "
-            f"{PINNED_LROLESIM_EXECUTION}, found {observed}")
+    validate_pinned_lrolesim_execution(ranking_row)
 
 
 def validate_class_provenance(
@@ -498,6 +535,68 @@ def validate_class_provenance(
 # --------------------------------------------------------------------------
 
 
+def validate_display_label(display_label, answer_uri: str) -> None:
+    """The label a learner sees must be a non-empty string.
+
+    Shared by the frozen-record path and by B1.4 so that a blank label cannot
+    reach ``build_case()`` from either direction. Nothing here rewrites the
+    label: display tokenization preserves parentheses, Roman numerals, digits,
+    diacritics and case exactly, and the lossy leakage tokenization is a separate
+    pipeline that is never shown to a human.
+    """
+    if not isinstance(display_label, str) or not display_label:
+        raise InputContractError(
+            f"display_label {display_label!r} for {answer_uri} is not a non-empty "
+            f"string; the label a learner sees must preserve parentheses, Roman "
+            f"numerals and diacritics exactly")
+
+
+def validate_candidate_roster(
+    answer_uri: str, candidates: Sequence[Candidate]
+) -> None:
+    """Invariants 4 and 7 on a roster already expressed as ``Candidate`` objects.
+
+    Split out of :func:`candidates_from_ranking` in B1.4, where a caller supplies
+    an already-ranked roster directly instead of a frozen Prompt-8D record. Both
+    callers must enforce the same four properties, and one implementation is the
+    only way to be sure they do.
+
+    A roster of FEWER THAN THREE candidates is deliberately **not** rejected
+    here. Too few same-class candidates is a scientifically meaningful
+    feasibility failure of that class, and the frozen kernel reports it by
+    returning no selection. Refusing the roster instead would hide the failure,
+    and topping it up to three would fabricate distractors.
+    """
+    for candidate in candidates:
+        if not isinstance(candidate.uri, str) or not candidate.uri:
+            raise InputContractError(
+                f"invariant 4 (unique candidate URIs): candidate URI "
+                f"{candidate.uri!r} is not a non-empty string")
+        # Objective keys 1 and 2 maximise the score sum and the score minimum
+        # with full cardinal precision, so a NaN — which compares false against
+        # everything — would silently corrupt both, and an infinity would win
+        # every comparison it entered.
+        if (isinstance(candidate.score, bool)
+                or not isinstance(candidate.score, (int, float))
+                or not math.isfinite(candidate.score)):
+            raise InputContractError(
+                f"invariant 5 (frozen LRoleSim score): score {candidate.score!r} "
+                f"of {candidate.uri} is not a finite number")
+    ranks = sorted(candidate.rank for candidate in candidates)
+    if ranks != list(range(1, len(candidates) + 1)):
+        raise InputContractError(
+            f"invariant 4 (contiguous unique ranks): ranks {ranks} are not 1..n "
+            f"for n = {len(candidates)}")
+    uris = [candidate.uri for candidate in candidates]
+    if len(set(uris)) != len(uris):
+        raise InputContractError(
+            "invariant 4 (unique candidate URIs): the ranking repeats a candidate")
+    if answer_uri in set(uris):
+        raise InputContractError(
+            f"invariant 7 (the Answer is not its own candidate): "
+            f"{answer_uri} appears in its own candidate pool")
+
+
 def candidates_from_ranking(ranking_row: Mapping) -> tuple[Candidate, ...]:
     """The COMPLETE ranked candidate pool, in frozen LRoleSim rank order.
 
@@ -511,31 +610,9 @@ def candidates_from_ranking(ranking_row: Mapping) -> tuple[Candidate, ...]:
     candidates: list[Candidate] = []
     for row in ranking_row["ranked_candidates"]:
         require_fields(row, RANKED_CANDIDATE_FIELDS, "ranked_candidates entry")
-        uri = row["canonical_candidate_uri"]
-        score = row["score"]
-        if not isinstance(uri, str) or not uri:
-            raise InputContractError(
-                f"invariant 4 (unique candidate URIs): candidate URI {uri!r} is "
-                f"not a non-empty string")
-        if isinstance(score, bool) or not isinstance(score, (int, float)):
-            raise InputContractError(
-                f"invariant 5 (frozen LRoleSim score): score {score!r} of {uri} "
-                f"is not a number")
-        candidates.append(Candidate(rank=row["rank"], score=score, uri=uri))
-
-    ranks = sorted(candidate.rank for candidate in candidates)
-    if ranks != list(range(1, len(candidates) + 1)):
-        raise InputContractError(
-            f"invariant 4 (contiguous unique ranks): ranks {ranks} are not 1..n "
-            f"for n = {len(candidates)}")
-    uris = [candidate.uri for candidate in candidates]
-    if len(set(uris)) != len(uris):
-        raise InputContractError(
-            "invariant 4 (unique candidate URIs): the ranking repeats a candidate")
-    if ranking_row["answer_uri"] in set(uris):
-        raise InputContractError(
-            f"invariant 7 (the Answer is not its own candidate): "
-            f"{ranking_row['answer_uri']} appears in its own candidate pool")
+        candidates.append(Candidate(rank=row["rank"], score=row["score"],
+                                    uri=row["canonical_candidate_uri"]))
+    validate_candidate_roster(ranking_row["answer_uri"], candidates)
     if len(candidates) != ranking_row["ranked_candidate_count"]:
         raise InputContractError(
             f"invariant 4 (complete ranked candidate pool): "
@@ -713,11 +790,7 @@ def case_from_records(
     facts = tuple(answer_fact_from_record(record, candidate_uris) for record in ordered)
 
     display_label = ranking_row["display_label"]
-    if not isinstance(display_label, str) or not display_label:
-        raise InputContractError(
-            f"display_label {display_label!r} for {answer_uri} is not a non-empty "
-            f"string; the label a learner sees must preserve parentheses, Roman "
-            f"numerals and diacritics exactly")
+    validate_display_label(display_label, answer_uri)
     return build_case(answer_uri, display_label, candidates, facts)
 
 
@@ -1096,3 +1169,246 @@ def levels_for_candidates(
                                 f"{quality.identity} against the ranked roster")
         facts.append(fact)
     return tuple(facts)
+
+
+# --------------------------------------------------------------------------
+# Phase B1.4 — the thin build-and-select orchestration
+# --------------------------------------------------------------------------
+#
+# WHY THIS STEP CONTAINS NO SCIENCE OF ITS OWN
+#   B1.2 decides what the pinned snapshot records about the Answer, and its
+#   quality/leakage verdict is FINAL — B1.4 neither re-runs nor revisits it.
+#   B1.3 decides every per-(fact, candidate) evidence level, by delegating to the
+#   frozen R1 classifier. `mcq_core` decides the candidate pool, the search
+#   scope, the set cover, the rationale ranking and the six-key objective. That
+#   leaves B1.4 with exactly one job: check that the inputs are what they claim
+#   to be, then call those four things in order. Every scientific rule it might
+#   have restated already has exactly one owner, and a second statement of any of
+#   them would be a second rule that can drift from the first.
+#
+# WHY A ROSTER NEEDS PROVENANCE THAT THE ROSTER ITSELF CANNOT CARRY
+#   `Candidate(rank, score, uri)` is three opaque numbers and a string. Nothing
+#   in it records WHICH ranker produced the ordering, WHICH class the pool was
+#   drawn from, whether a human approved that class, or whether the sequence is
+#   the complete admitted pool rather than somebody's top ten. All four change
+#   what the published result means while changing none of the arithmetic:
+#
+#     * a legacy Overlap ranking would replace the paper's ranker and still fill
+#       `rank` and `score` perfectly, so `provenance` must name the execution
+#       path and it is checked against the pinned five values;
+#     * a truncated roster would shrink the anonymity denominator and turn the
+#       bounded pool's "top m of the frozen ranking" into the top m of a slice,
+#       so the caller must declare the roster COMPLETE rather than merely supply
+#       one that happens to be contiguous from rank 1.
+#
+# WHY CLASS APPROVAL IS PROVENANCE AND NOT AN EVIDENCE LEVEL
+#   Approval says a human agreed that this class is a legitimate source of
+#   same-class candidates. It is a statement about the experimental procedure,
+#   not about any (fact, candidate) pair, and it must never be able to create,
+#   upgrade or rescue a level: an approved class with weak evidence still yields
+#   weak evidence. So it is required, recorded, and kept off every evidence axis.
+#   No approval token is invented here, and no single approved status string is
+#   hard-coded either — a later frozen class-selection procedure may report a
+#   different status, and this generic path must not silently reject it.
+#
+# WHY NO SELECTION IS A VALID OUTCOME AND NOT SOMETHING TO REPAIR
+#   `select_distractors()` returns None when no combination of the roster reaches
+#   full coverage under any policy. That is a measurement — this class, at this
+#   size, cannot support an item — and it is exactly the kind of feasibility
+#   failure the yield experiment exists to count. B1.4 returns it unchanged,
+#   still with its provenance record. It never widens the pool, weakens a
+#   threshold, or fabricates a candidate to reach three.
+
+#: What a caller must record about a roster it supplies. `require_fields` reports
+#: any missing key by name, so a caller learns which provenance it omitted rather
+#: than watching the run proceed on an undocumented ranking.
+REQUIRED_RUN_PROVENANCE = (
+    "candidate_roster_source",
+    "candidate_roster_sha256",
+    "candidate_roster_is_complete_admitted_pool",
+    "selected_class_uri",
+    "class_approval_status",
+    *PINNED_LROLESIM_EXECUTION,
+)
+
+
+def validate_run_provenance(provenance: Mapping, *, scope: str) -> None:
+    """Invariants 5, 8 and 9 on the provenance supplied with a live roster.
+
+    The LRoleSim half is the same check B1.1 runs on a frozen Prompt-8D record,
+    called through the same function. The class half is what the frozen records
+    could only partly support (see the module docstring's PROVENANCE LIMITATION
+    note): here the caller must state the class, its approval status and the
+    roster artefact, and the class must agree with the classification scope,
+    because a roster drawn from one class and evidence classified against another
+    would produce levels aligned to a pool that never existed.
+    """
+    require_fields(provenance, REQUIRED_RUN_PROVENANCE, "the supplied run provenance")
+    validate_pinned_lrolesim_execution(provenance)
+
+    class_uri = provenance["selected_class_uri"]
+    if not isinstance(class_uri, str) or not class_uri:
+        raise InputContractError(
+            f"invariant 9 (selected class recorded): selected_class_uri="
+            f"{class_uri!r} is not a non-empty URI")
+    if class_uri != scope:
+        raise InputContractError(
+            f"invariant 9 (selected class recorded): the roster was drawn from "
+            f"{class_uri} but evidence is being classified against scope {scope}")
+    # Present and non-empty, and nothing more. The VALUE is deliberately not
+    # constrained: pinning one literal approval string here would refuse any
+    # later frozen class-selection procedure that reports its own status.
+    status = provenance["class_approval_status"]
+    if not isinstance(status, str) or not status.strip():
+        raise InputContractError(
+            f"invariant 9 (approval status recorded): class_approval_status="
+            f"{status!r} is empty, so nothing records that {class_uri} was "
+            f"approved as a source of same-class candidates")
+    for name in ("candidate_roster_source", "candidate_roster_sha256"):
+        if not isinstance(provenance[name], str) or not provenance[name]:
+            raise InputContractError(
+                f"invariant 9 (candidate roster identity recorded): {name}="
+                f"{provenance[name]!r} is not a non-empty string, so the roster "
+                f"this selection ranged over cannot be identified again")
+    # `is not True` rather than a truth test: the point is an explicit declaration,
+    # and a truthy placeholder is not one.
+    if provenance["candidate_roster_is_complete_admitted_pool"] is not True:
+        raise InputContractError(
+            "invariant 4 (complete ranked candidate pool): the caller did not "
+            "record candidate_roster_is_complete_admitted_pool=True; an "
+            "undocumented top-k truncation would shrink the anonymity "
+            "denominator and redefine the bounded pool's TOP component")
+
+
+def audit_record(
+    case: AnswerCase,
+    selection: Selection | None,
+    provenance: Mapping,
+    *,
+    local_kg,
+    quality_policy,
+    semantic_index,
+    rulebook,
+) -> dict:
+    """A deterministic, JSON-serialisable record of one build-and-select run.
+
+    ``mcq_core.canonical_record()`` already publishes the selection itself —
+    distractors, rationale, masks, search scope, both optimality claims and the
+    scientific caveats — and is reused unchanged. What it cannot know is where
+    its inputs came from, so exactly ONE nested mapping is added under
+    ``phase_b1_provenance``. No provenance dataclass is introduced: a plain
+    mapping with a fixed key order serialises deterministically and needs no
+    schema migration when a later phase records one more digest.
+
+    The four policy digests and the graph digest are read off the ALREADY-LOADED
+    objects that were actually used, never re-declared by the caller and never
+    recomputed from a file here. A caller-declared digest can be stale or simply
+    wrong; ``rulebook.policy_sha256`` is by construction the digest of the rules
+    that classified this run's evidence.
+
+    A run with no selection still gets a full record. The provenance is what
+    makes a feasibility failure reproducible and therefore countable.
+    """
+    cache_key = semantic_index.cache_key
+    nested = {
+        "answer_uri": case.answer_uri,
+        "selected_class_uri": provenance["selected_class_uri"],
+        "class_approval_status": provenance["class_approval_status"],
+        "candidate_roster_source": provenance["candidate_roster_source"],
+        "candidate_roster_sha256": provenance["candidate_roster_sha256"],
+        "candidate_roster_is_complete_admitted_pool": True,
+        "original_candidate_count": len(case.candidates),
+        "pinned_kg_sha256": local_kg.source_sha256,
+        "quality_policy_sha256": quality_policy.policy_sha256,
+        "evidence_rules_sha256": rulebook.policy_sha256,
+        "semantic_relation_policy_sha256": semantic_index.policy.policy_sha256,
+        # Availability and identity are separate facts. An unavailable index is a
+        # recorded condition of the run — it leaves every L1 carrying
+        # UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE — and never a reason to downgrade.
+        "semantic_index_available": semantic_index.available,
+        "semantic_index_unavailable_reason": semantic_index.unavailable_reason,
+        "semantic_index_cache_key": (None if cache_key is None
+                                     else cache_key.as_record()),
+        "lrolesim_execution": {name: provenance[name]
+                               for name in PINNED_LROLESIM_EXECUTION},
+        # Restated at the top level of the provenance so that a feasibility
+        # failure, which has no canonical_record() to carry them, is still
+        # explicit about what scope was searched and what was claimed.
+        "search_scope": None if selection is None else selection.search_scope,
+        "global_optimality_claim": (None if selection is None
+                                    else selection.pool.global_optimality_claim),
+        "selection_outcome": ("NO_FEASIBLE_SELECTION" if selection is None
+                              else "SELECTED"),
+    }
+    if selection is None:
+        return {"answer_uri": case.answer_uri,
+                "display_label": case.display_label,
+                "selection": None,
+                "phase_b1_provenance": nested}
+    return {**canonical_record(case, selection), "phase_b1_provenance": nested}
+
+
+def build_and_select(
+    answer_uri: str,
+    display_label: str,
+    candidates: Sequence[Candidate],
+    *,
+    local_kg,
+    quality_policy,
+    semantic_index,
+    rulebook,
+    scope: str,
+    provenance: Mapping,
+    pool_policy: PoolPolicy = DEFAULT_POOL_POLICY,
+    force_pool: bool = False,
+) -> tuple[AnswerCase, Selection | None, dict]:
+    """Validate the supplied roster/provenance, reconstruct the Answer's facts,
+    classify evidence, build the canonical ``AnswerCase``, and call the frozen
+    Phase-A2 selector.
+
+    Returns ``(case, selection, record)``. ``selection`` is ``None`` when no
+    combination of this roster reaches full coverage under any policy, which is a
+    feasibility result and not an error; ``record`` is the deterministic audit
+    mapping described in :func:`audit_record`, and is produced either way.
+
+    ``candidates`` is the COMPLETE admitted ranked candidate pool with its frozen
+    LRoleSim ``rank`` and ``score`` already computed. No similarity is computed
+    or recomputed anywhere in Phase B: Journal 2 applies LRoleSim as a structural
+    plausibility ranker, and LRoleSim produces no rationale.
+
+    Each of the five steps below belongs to somebody else, and this function
+    contributes nothing to any of them beyond calling it:
+
+    1. ``validate_run_provenance`` / ``validate_candidate_roster`` — the input
+       contract, asserted before the kernel can produce an arithmetically valid
+       but scientifically meaningless answer;
+    2. ``answer_facts_from_local_kg`` (B1.2) — the Answer's complete observed
+       one-hop inventory with the frozen R1 quality and leakage verdicts, which
+       are consumed as already decided and are never re-run here;
+    3. ``levels_for_candidates`` (B1.3) — every per-(fact, candidate) evidence
+       level, exclusion basis and granularity risk, each decided by the frozen R1
+       classifier;
+    4. ``mcq_core.build_case`` — canonicalisation. The kernel's own contract
+       forbids constructing ``AnswerCase`` directly, because ``build_case()`` is
+       what re-sorts candidates into ``(rank, uri)`` order, permutes every fact's
+       per-candidate tuples the same way and derives ``eligible_fact_indices``;
+    5. ``mcq_core.select_distractors`` — the pool, the search scope, the set
+       cover, the rationale ranking and the six-key objective. FULL_EXACT versus
+       POOL_EXACT is the kernel's decision alone and is not influenced from here.
+    """
+    validate_run_provenance(provenance, scope=scope)
+    roster = tuple(candidates)
+    validate_candidate_roster(answer_uri, roster)
+    validate_display_label(display_label, answer_uri)
+
+    quality = answer_facts_from_local_kg(
+        answer_uri, local_kg=local_kg, quality_policy=quality_policy)
+    facts = levels_for_candidates(
+        quality, roster, local_kg=local_kg, semantic_index=semantic_index,
+        rulebook=rulebook, scope=scope)
+    case = build_case(answer_uri, display_label, roster, facts)
+    selection = select_distractors(case, pool_policy, force_pool)
+    return (case, selection, audit_record(
+        case, selection, provenance, local_kg=local_kg,
+        quality_policy=quality_policy, semantic_index=semantic_index,
+        rulebook=rulebook))

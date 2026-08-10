@@ -336,10 +336,12 @@ def test_the_production_module_imports_no_test_module_and_no_client():
     B1.2 widened this set by exactly two packages, both frozen and both offline:
     ``rationale_v3`` for the R1 quality/leakage assessor and the R1 URI
     normalizer, and ``selection`` for the corrected Prompt-8D one-hop edge
-    enumeration. ``kg`` is deliberately still absent — the adapter receives an
-    already-loaded graph and must never learn to resolve or open one itself.
+    enumeration. B1.4 widened it by ``math`` alone, for the finite-score check;
+    everything else B1.4 needs came from ``mcq_core``, which was already in.
+    ``kg`` is deliberately still absent — the adapter receives an already-loaded
+    graph and must never learn to resolve or open one itself.
     """
-    allowed = {"__future__", "json", "pathlib", "typing", "mcq_core",
+    allowed = {"__future__", "json", "math", "pathlib", "typing", "mcq_core",
                "rationale_v3", "selection"}
     tree = ast.parse(INPUTS_SOURCE.read_text("utf-8"))
     imported = set()
@@ -1241,7 +1243,13 @@ def test_b12_t8_albert_einstein_still_has_no_answer_case(pinned_kg,
                                                          quality_policy):
     """Facts are not a case. Einstein has 66 facts and still no candidate roster.
 
-    B1.3 is where a roster could come from, and it has not been started.
+    Corrected in B1.4: B1.3 is NOT where a roster could come from. B1.3
+    deliberately creates none — it classifies an Answer's facts against a roster
+    it is handed — and B1.4 likewise only validates and consumes a roster it is
+    given. A real new roster requires an approved class decision and a class
+    member list, the one true network dependency in this project, so it can only
+    arrive after the external B1 preconditions clear and belongs to B2 /
+    upstream integration.
     """
     assert len(answer_facts_from_local_kg(EINSTEIN, local_kg=pinned_kg,
                                           quality_policy=quality_policy)) == 66
@@ -1312,8 +1320,8 @@ def test_b12_the_l2_wording_is_the_scientifically_accurate_one():
 #                        semantic behaviour, because the pilot happens to contain
 #                        no granularity risk at all: 14,860 of 14,860 incidences
 #                        are NONE on that axis.
-#   semantic safety      Nine synthetic pins, each a single-edge graph, for the
-#                        behaviours the pilot never exercises — canonical
+#   semantic safety      14 semantic-safety pins, each a small synthetic graph,
+#                        for the behaviours the pilot never exercises — canonical
 #                        equivalence, both containment directions, an unavailable
 #                        index, IN/OUT separation, a missing candidate node, and
 #                        the scoped-empirical annotation. Without these, the two
@@ -1995,7 +2003,7 @@ def test_b13_t3_no_evidence_rule_is_restated_in_the_adapter_source():
 
 def test_b13_t3_the_adapter_still_imports_only_frozen_offline_modules():
     """B1.3 widens the AST allowlist by nothing: ``rationale_v3`` was already in."""
-    allowed = {"__future__", "json", "pathlib", "typing", "mcq_core",
+    allowed = {"__future__", "json", "math", "pathlib", "typing", "mcq_core",
                "rationale_v3", "selection"}
     tree = ast.parse(INPUTS_SOURCE.read_text("utf-8"))
     imported = set()
@@ -2012,16 +2020,24 @@ def test_b13_t3_the_frozen_kernel_is_untouched_by_b13():
     assert hashlib.sha256(CORE_SOURCE.read_bytes()).hexdigest() == FROZEN_KERNEL_SHA256
 
 
-def test_b13_t3_b14_has_not_been_started():
-    """No distractor selection, no set cover, no Einstein roster in this module.
+def test_b13_t3_the_kernel_is_called_and_never_reimplemented():
+    """Superseded by B1.4, which is exactly the step that calls the kernel.
 
-    ``build_case()`` stays imported and stays used by B1.1; what B1.4 would add
-    is the step AFTER it — calling the kernel — and no name from that step
-    appears anywhere in the adapter.
+    Until B1.4 this test asserted that no selection name appeared in the adapter
+    at all. B1.4 adds ``build_and_select()``, whose entire purpose is to call
+    ``select_distractors()``, so the ban is replaced by the property that
+    actually still has to hold: the adapter CALLS the frozen kernel and
+    reimplements no part of it. Every name below is a piece of the kernel's own
+    algorithm; none of them may be defined here.
     """
     text = INPUTS_SOURCE.read_text("utf-8")
-    for banned in ("build_and_select", "select_distractors", "Selection",
-                   "set_cover", "setcover", "PoolPolicy", "force_pool"):
+    assert "select_distractors(case, pool_policy, force_pool)" in text
+    for banned in ("def build_candidate_pool", "def feasible_combinations",
+                   "def combination_objective_key", "def minimum_cover_size",
+                   "def coverage_mask", "def rank_minimum_rationales",
+                   "def build_rationale", "def candidate_rescue_key",
+                   "def canonical_record", "set_cover", "setcover",
+                   "SEARCH_FULL_EXACT", "SEARCH_POOL_EXACT"):
         assert banned not in text, banned
 
 
@@ -2048,3 +2064,751 @@ def test_b13_t3_albert_einstein_still_has_no_candidate_roster(pinned_kg,
                                   rulebook=empty_rulebook(),
                                   scope="http://dbpedia.org/resource/Category:None")
     assert [fact.levels for fact in built] == [()] * len(facts)
+
+
+# ==========================================================================
+# PHASE B1 STEP 4 — the thin build-and-select orchestration
+# ==========================================================================
+#
+# B1.4 adds no science. It validates a roster and its provenance, then calls
+# B1.2, B1.3, ``build_case()`` and ``select_distractors()`` in that order. So the
+# tests come in two kinds, and the first one is the whole point of the step.
+#
+#   the local reconstruction gate   For all eight R1-ready pilot Answers, the
+#                                   AnswerCase is rebuilt from the PINNED LOCAL
+#                                   KG through B1.2 + B1.3 — never by reading the
+#                                   frozen evidence records again — and both the
+#                                   case and the resulting selection must equal
+#                                   the frozen ones exactly. This is the only
+#                                   test that can show the production path, end
+#                                   to end, produces the published pilot.
+#   the input-contract refusals     One failing case per roster/provenance
+#                                   invariant, on a synthetic graph so they cost
+#                                   nothing. A rank gap, a duplicated URI, a
+#                                   NaN score, an unpinned beta, a legacy Overlap
+#                                   ranker, a class that disagrees with the
+#                                   classification scope, a blank approval
+#                                   status or an unidentified roster artefact
+#                                   each raise, and none is repaired.
+#
+# What is NOT tested here, because B1.4 must not do it: no class selection, no
+# class member retrieval, no LRoleSim execution, no Einstein roster, no
+# verbalization, no choice-evidence bipartite graph, no 100-Answer batch.
+
+import csv  # noqa: E402
+
+from mcq_inputs import (  # noqa: E402
+    REQUIRED_RUN_PROVENANCE,
+    audit_record,
+    build_and_select,
+    validate_candidate_roster,
+)
+
+#: The human class-approval decision, read from the file that actually records
+#: it. B1.4's own algorithm hard-codes no approval string — a later frozen
+#: class-selection procedure may report a different one — so the value is read
+#: here rather than manufactured, exactly as it is for a real run.
+PILOT_CLASS_POLICY = ROOT / "data" / "pilot_class_policy_v1.csv"
+
+#: Every pilot Answer was searched exactly over its complete ranked pool. The
+#: kernel alone decides this; B1.4 passes the default policy and never overrides.
+PILOT_SEARCH_SCOPE = "FULL_EXACT"
+
+SYNTHETIC_DISTRACTOR = "http://dbpedia.org/resource/Synthetic_Distractor_%d"
+
+
+def pilot_class_approvals():
+    """``{answer_uri: approval_status}`` from the recorded pilot class policy."""
+    with open(PILOT_CLASS_POLICY, encoding="utf-8", newline="") as handle:
+        return {row["answer_uri"]: row["approval_status"]
+                for row in csv.DictReader(handle)}
+
+
+def pilot_provenance(answer, *, approvals, roster_sha256):
+    """The provenance of one pilot Answer, read from its recorded sources.
+
+    Nothing here is invented. The class URI and the five LRoleSim parameters come
+    off the frozen Prompt-8D handoff record; the approval status comes off
+    ``data/pilot_class_policy_v1.csv``; the roster digest is the digest of the
+    handoff file itself, computed by the frozen loader. The one declaration this
+    test makes on its own is that the roster is the complete admitted pool, and
+    that is not a guess either: ``validate_prompt8d_contract()`` asserts the
+    ranks are contiguous from 1 and that the row count equals the recorded
+    ``ranked_candidate_count``, and the Phase-B input contract §2 defines the
+    handoff's ``ranked_candidates`` as the complete pool rather than a top-k
+    slice.
+    """
+    return {
+        "candidate_roster_source":
+            "outputs/journal2_week2_extract_integration_2026-07-30/"
+            "candidate_ranking_handoff.jsonl",
+        "candidate_roster_sha256": roster_sha256,
+        "candidate_roster_is_complete_admitted_pool": True,
+        "selected_class_uri": answer.selected_class_uri,
+        "class_approval_status": approvals[answer.answer_uri],
+        "ranker_name": answer.ranker_name,
+        "measure": answer.measure,
+        "lrolesim_beta": answer.lrolesim_beta,
+        "iterations": answer.iterations,
+        "iteration_mode": answer.iteration_mode,
+    }
+
+
+@pytest.fixture(scope="module")
+def local_runs(pinned_kg, quality_policy, pilot_prompt8d_inputs,
+               pilot_answer_inputs, pilot_semantic_index, pilot_rulebook):
+    """``{answer_uri: (case, selection, record)}`` for all eight pilot Answers.
+
+    THE ACCEPTANCE GATE OF B1.4. Every case here is rebuilt from the pinned local
+    KG through the production B1.2 + B1.3 path; the frozen evidence audit is not
+    read, so a passing comparison cannot be an artefact of reading the answer
+    back. Run once, inside the connection guard, and shared by every test below.
+    """
+    approvals = pilot_class_approvals()
+    roster_sha256 = pilot_prompt8d_inputs.input_sha256[
+        "candidate_ranking_handoff.jsonl"]
+    with no_network(NETWORK_ATTEMPTS):
+        return {
+            answer.answer_uri: build_and_select(
+                answer.answer_uri, answer.display_label,
+                tuple(Candidate(rank=view.rank, score=view.score,
+                                uri=view.canonical_candidate_uri)
+                      for view in answer.ranked_candidates),
+                local_kg=pinned_kg, quality_policy=quality_policy,
+                semantic_index=pilot_semantic_index, rulebook=pilot_rulebook,
+                scope=answer.scope,
+                provenance=pilot_provenance(answer, approvals=approvals,
+                                            roster_sha256=roster_sha256))
+            for answer in pilot_answer_inputs}
+
+
+# --- the synthetic harness, for the refusal cases --------------------------
+# These never touch the pinned graph: every refusal below happens before a single
+# edge is read, which is itself part of the contract — an invalid roster must not
+# be able to start an expensive reconstruction.
+
+
+def synthetic_provenance(**overrides):
+    """Valid provenance for a synthetic run, with one field optionally broken.
+
+    ``class_approval_status`` is deliberately a string that says it is NOT a
+    human approval. B1.4 requires the field to be present and non-empty and
+    constrains its value no further, so a fixture must not borrow the real
+    pilot's approval token to satisfy it.
+    """
+    provenance = {
+        "candidate_roster_source": "tests/test_mcq_inputs.py synthetic fixture",
+        "candidate_roster_sha256": "0" * 64,
+        "candidate_roster_is_complete_admitted_pool": True,
+        "selected_class_uri": SYNTHETIC_SCOPE,
+        "class_approval_status": "SYNTHETIC_FIXTURE_NOT_A_HUMAN_APPROVAL",
+        **PINNED_LROLESIM_EXECUTION,
+    }
+    provenance.update(overrides)
+    return {name: value for name, value in provenance.items()
+            if value is not REMOVED}
+
+
+#: Sentinel for "delete this provenance key entirely", as distinct from "set it
+#: to something invalid". A missing key and a blank key are different mistakes.
+REMOVED = object()
+
+
+def synthetic_run(quality_policy, *, candidates=None, provenance=None,
+                  scope=SYNTHETIC_SCOPE, force_pool=False,
+                  display_label="Synthetic Answer", candidate_count=4):
+    """One complete build_and_select() over a tiny synthetic graph.
+
+    The Answer was born in Tokyo and every candidate in Kyoto, so each candidate
+    carries an observed alternative value and the fact is L1 against all of them.
+    The quality policy and the semantic index are the real frozen ones — only the
+    graph is synthetic — so the eligibility verdict and the containment closure
+    behave exactly as they do on the pinned snapshot.
+    """
+    uris = [SYNTHETIC_DISTRACTOR % i for i in range(1, candidate_count + 1)]
+    triples = [(ANSWER, BORN_IN, TOKYO)] + [(uri, BORN_IN, KYOTO) for uri in uris]
+    roster = tuple(Candidate(rank=i, score=1.0 / i, uri=uri)
+                   for i, uri in enumerate(uris, start=1))
+    return build_and_select(
+        ANSWER, display_label,
+        roster if candidates is None else candidates,
+        local_kg=SyntheticKG("b14", triples), quality_policy=quality_policy,
+        semantic_index=containment_index(), rulebook=empty_rulebook(),
+        scope=scope,
+        provenance=synthetic_provenance() if provenance is None else provenance,
+        force_pool=force_pool)
+
+
+def assert_run_refused(quality_policy, fragment, **kwargs):
+    """Require an explicit refusal naming WHICH invariant fired."""
+    with pytest.raises(InputContractError) as error:
+        synthetic_run(quality_policy, **kwargs)
+    assert fragment in str(error.value), str(error.value)
+    return str(error.value)
+
+
+# --------------------------------------------------------------------------
+# B1.4-T1. The local reconstruction gate — 8/8 cases and 8/8 selections
+# --------------------------------------------------------------------------
+
+
+@requires_pinned_kg
+def test_b14_t1_all_eight_local_cases_equal_the_frozen_record_cases(
+        local_runs, production_cases):
+    """The reconstructed AnswerCase is the frozen-record AnswerCase, exactly.
+
+    ``AnswerCase`` is a frozen dataclass of frozen dataclasses, so ``==`` here
+    compares the candidate roster, all eleven quality fields of every fact, all
+    three per-candidate axes of every fact and the derived eligible-fact indices.
+    One misaligned tuple anywhere fails it.
+    """
+    assert set(local_runs) == set(production_cases)
+    assert len(local_runs) == 8
+    for uri, (case, _selection, _record) in local_runs.items():
+        assert case == production_cases[uri], uri
+
+
+@requires_pinned_kg
+def test_b14_t1_all_eight_local_selections_equal_the_frozen_r1_selections(
+        local_runs, oracle):
+    """Twelve properties per Answer, against ``selected_mcqs_v3_r1.jsonl``.
+
+    The oracle is used ONLY as an oracle: no field of it enters the
+    reconstruction, which read the pinned graph and the frozen policies alone.
+    """
+    assert len(oracle) == 8
+    for record in oracle:
+        _case, selection, _emitted = local_runs[record["answer_uri"]]
+        where = record["display_label"]
+        assert selection is not None, where
+        assert selection.evidence_policy == record["evidence_policy"], where
+        assert [d.uri for d in selection.distractors] == \
+            [d["candidate_uri"] for d in record["distractors"]], where
+        assert [d.rank for d in selection.distractors] == \
+            [d["original_lrolesim_rank"] for d in record["distractors"]], where
+        assert sorted(selection.rationale.fact_identities) == \
+            sorted(oracle_identities(record)), where
+        assert selection.minimum_rationale_size == \
+            record["minimum_rationale_size"], where
+        assert selection.mcq_evidence_level == record["mcq_evidence_level"], where
+        assert selection.search_scope == record["search_scope"], where
+        assert selection.candidate_rank_sum == record["candidate_rank_sum"], where
+        assert selection.lrolesim_score_sum == record["lrolesim_score_sum"], where
+        assert selection.lrolesim_score_min == record["lrolesim_score_min"], where
+        assert selection.rationale.coverage_mask == record["coverage_mask"], where
+
+
+@requires_pinned_kg
+def test_b14_t1_the_gate_did_not_read_the_frozen_evidence_records(local_runs,
+                                                                  monkeypatch):
+    """The reconstruction path must not be able to fall back to reading them.
+
+    ``local_runs`` is module-scoped and has already run, so this re-runs ONE
+    Answer with the frozen-record readers disabled. If the production path had
+    quietly consulted the evidence audit, it would raise here instead of
+    reproducing Silicon's selection.
+    """
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("B1.4 read a frozen record instead of the pinned KG")
+
+    monkeypatch.setattr(mcq_inputs, "case_from_frozen_records", must_not_run)
+    monkeypatch.setattr(mcq_inputs, "answer_fact_from_record", must_not_run)
+    monkeypatch.setattr(mcq_inputs, "find_evidence_records", must_not_run)
+    case, selection, _record = local_runs[SILICON]
+    assert len(case.candidates) == 11
+    assert selection is not None
+
+
+# --------------------------------------------------------------------------
+# B1.4-T2. Eisaku Satō stays the sentinel
+# --------------------------------------------------------------------------
+
+
+@requires_pinned_kg
+def test_b14_t2_the_sato_sentinel_is_unmoved_by_the_local_path(local_runs, oracle):
+    """The one pilot Answer whose selection leaves the provisional top three.
+
+    Ranks 2 and 3 carry no L1-covering eligible fact, so the exact search
+    replaces them with ranks 5 and 6 and needs a two-fact rationale. Every number
+    below is a consequence of an evidence level that B1.4 reconstructed from the
+    pinned graph rather than read, so if a single per-candidate tuple were
+    misaligned anywhere in B1.2 + B1.3, this is the Answer that moves first.
+    There is no special case for Satō in production code — the sentinel works
+    only because nothing knows it is one.
+    """
+    case, selection, _record = local_runs[SATO]
+    frozen = next(record for record in oracle if record["answer_uri"] == SATO)
+    assert len(case.candidates) == 24
+    assert [d.rank for d in selection.distractors] == [1, 5, 6]
+    assert selection.minimum_rationale_size == 2
+    assert selection.enumerated_combination_count == 2024
+    assert sorted(selection.rationale.fact_identities) == \
+        sorted(oracle_identities(frozen))
+    assert len(selection.rationale.fact_identities) == 2
+
+
+# --------------------------------------------------------------------------
+# B1.4-T3. FULL_EXACT / POOL_EXACT stays entirely the kernel's decision
+# --------------------------------------------------------------------------
+
+
+@requires_pinned_kg
+def test_b14_t3_all_eight_pilot_answers_keep_their_search_scope(local_runs, oracle):
+    """Eight FULL_EXACT runs, unchanged. B1.4 passes the default pool policy."""
+    for record in oracle:
+        _case, selection, emitted = local_runs[record["answer_uri"]]
+        assert selection.search_scope == PILOT_SEARCH_SCOPE
+        assert selection.search_scope == record["search_scope"]
+        assert emitted["phase_b1_provenance"]["search_scope"] == \
+            record["search_scope"]
+        assert emitted["phase_b1_provenance"]["global_optimality_claim"] is True
+
+
+def test_b14_t3_the_kernel_alone_switches_to_pool_exact(quality_policy):
+    """``force_pool`` is the kernel's own parameter, passed straight through.
+
+    B1.4 neither builds the bounded pool nor decides when one is needed: the same
+    inputs produce FULL_EXACT by default and POOL_EXACT when the kernel is told
+    to bound its search, and the only difference in this module is one argument
+    handed on unmodified.
+    """
+    _case, full, full_record = synthetic_run(quality_policy)
+    _case2, pooled, pool_record = synthetic_run(quality_policy, force_pool=True)
+    assert full.search_scope == "FULL_EXACT"
+    assert pooled.search_scope == "POOL_EXACT"
+    assert full_record["phase_b1_provenance"]["global_optimality_claim"] is True
+    assert pool_record["phase_b1_provenance"]["global_optimality_claim"] is False
+
+
+# --------------------------------------------------------------------------
+# B1.4-T4. Roster refusals — invariants 4, 5 and 7
+# --------------------------------------------------------------------------
+
+
+def test_b14_t4_a_duplicated_rank_is_refused(quality_policy):
+    roster = (Candidate(rank=1, score=0.9, uri=SYNTHETIC_DISTRACTOR % 1),
+              Candidate(rank=1, score=0.8, uri=SYNTHETIC_DISTRACTOR % 2),
+              Candidate(rank=3, score=0.7, uri=SYNTHETIC_DISTRACTOR % 3))
+    assert_run_refused(quality_policy, "invariant 4 (contiguous unique ranks)",
+                       candidates=roster)
+
+
+def test_b14_t4_a_rank_gap_is_refused(quality_policy):
+    """Objective key 5 sums the ranks and the bounded pool's TOP is the first m."""
+    roster = (Candidate(rank=1, score=0.9, uri=SYNTHETIC_DISTRACTOR % 1),
+              Candidate(rank=2, score=0.8, uri=SYNTHETIC_DISTRACTOR % 2),
+              Candidate(rank=4, score=0.7, uri=SYNTHETIC_DISTRACTOR % 3))
+    assert_run_refused(quality_policy, "invariant 4 (contiguous unique ranks)",
+                       candidates=roster)
+
+
+def test_b14_t4_a_duplicated_candidate_uri_is_refused(quality_policy):
+    roster = (Candidate(rank=1, score=0.9, uri=SYNTHETIC_DISTRACTOR % 1),
+              Candidate(rank=2, score=0.8, uri=SYNTHETIC_DISTRACTOR % 1),
+              Candidate(rank=3, score=0.7, uri=SYNTHETIC_DISTRACTOR % 3))
+    assert_run_refused(quality_policy, "invariant 4 (unique candidate URIs)",
+                       candidates=roster)
+
+
+def test_b14_t4_an_answer_that_ranks_itself_is_refused(quality_policy):
+    """An Answer among its own candidates could be selected as its own distractor."""
+    roster = (Candidate(rank=1, score=0.9, uri=SYNTHETIC_DISTRACTOR % 1),
+              Candidate(rank=2, score=0.8, uri=ANSWER),
+              Candidate(rank=3, score=0.7, uri=SYNTHETIC_DISTRACTOR % 3))
+    assert_run_refused(quality_policy,
+                       "invariant 7 (the Answer is not its own candidate)",
+                       candidates=roster)
+
+
+@pytest.mark.parametrize("score", ["0.9", None, float("nan"), float("inf"),
+                                   float("-inf")])
+def test_b14_t4_a_non_numeric_or_non_finite_score_is_refused(quality_policy, score):
+    """Keys 1 and 2 maximise the score sum and the score minimum in full precision.
+
+    A string never reaches them; a NaN compares false against everything and
+    would silently corrupt both; an infinity wins every comparison it enters.
+    """
+    roster = (Candidate(rank=1, score=score, uri=SYNTHETIC_DISTRACTOR % 1),
+              Candidate(rank=2, score=0.8, uri=SYNTHETIC_DISTRACTOR % 2),
+              Candidate(rank=3, score=0.7, uri=SYNTHETIC_DISTRACTOR % 3))
+    assert_run_refused(quality_policy, "invariant 5 (frozen LRoleSim score)",
+                       candidates=roster)
+
+
+def test_b14_t4_a_valid_roster_of_two_is_not_refused():
+    """Too few candidates is a feasibility question, never a contract violation."""
+    validate_candidate_roster(ANSWER, (
+        Candidate(rank=1, score=0.9, uri=SYNTHETIC_DISTRACTOR % 1),
+        Candidate(rank=2, score=0.8, uri=SYNTHETIC_DISTRACTOR % 2)))
+
+
+# --------------------------------------------------------------------------
+# B1.4-T5. LRoleSim provenance refusals — invariants 5 and 8
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("field,value", [
+    ("lrolesim_beta", 0.8),
+    ("iteration_mode", "converged"),
+    ("iterations", 5),
+    ("ranker_name", "lrolesim_m1_fixed_k5"),
+    ("measure", "lrolesim_simrank"),
+])
+def test_b14_t5_an_unpinned_execution_path_is_refused(quality_policy, field, value):
+    """A different beta or iteration mode is a different ranker, same field names.
+
+    ``Candidate(rank, score, uri)`` cannot carry this: three numbers and a string
+    are identical whichever ranker produced them, which is exactly why the
+    execution path has to arrive as provenance and be checked against the pin.
+    """
+    assert_run_refused(quality_policy, "invariant 5 (pinned LRoleSim execution",
+                       provenance=synthetic_provenance(**{field: value}))
+
+
+@pytest.mark.parametrize("field,value", [
+    ("ranker_name", "legacy_overlap_v1"),
+    ("measure", "overlap_ed"),
+])
+def test_b14_t5_a_legacy_overlap_provenance_is_refused(quality_policy, field, value):
+    """Journal 2 applies LRoleSim. A legacy Overlap ranking is a different measure."""
+    message = assert_run_refused(
+        quality_policy, "invariant 8 (no legacy Overlap ranking)",
+        provenance=synthetic_provenance(**{field: value}))
+    assert "must never populate Candidate.rank" in message
+
+
+def test_b14_t5_missing_lrolesim_provenance_is_reported_by_name(quality_policy):
+    """No ranker provenance at all is refused, and says which keys were missing."""
+    provenance = synthetic_provenance(
+        **{name: REMOVED for name in PINNED_LROLESIM_EXECUTION})
+    message = assert_run_refused(quality_policy, "missing required field",
+                                 provenance=provenance)
+    for name in PINNED_LROLESIM_EXECUTION:
+        assert name in message
+
+
+# --------------------------------------------------------------------------
+# B1.4-T6. Class and roster provenance refusals — invariants 4 and 9
+# --------------------------------------------------------------------------
+
+
+def test_b14_t6_a_missing_selected_class_is_refused(quality_policy):
+    assert_run_refused(quality_policy, "missing required field",
+                       provenance=synthetic_provenance(selected_class_uri=REMOVED))
+
+
+def test_b14_t6_an_empty_selected_class_is_refused(quality_policy):
+    assert_run_refused(quality_policy, "invariant 9 (selected class recorded)",
+                       provenance=synthetic_provenance(selected_class_uri=""))
+
+
+def test_b14_t6_a_selected_class_disagreeing_with_the_scope_is_refused(
+        quality_policy):
+    """Evidence classified against one class, candidates drawn from another.
+
+    The rulebook is consulted per scope, so this does not fail loudly downstream:
+    it silently produces levels aligned to a pool that never existed.
+    """
+    other = "http://dbpedia.org/resource/Category:Some_other_class"
+    message = assert_run_refused(
+        quality_policy, "invariant 9 (selected class recorded)",
+        provenance=synthetic_provenance(selected_class_uri=other))
+    assert "evidence is being classified against scope" in message
+
+
+def test_b14_t6_a_missing_class_approval_status_is_refused(quality_policy):
+    assert_run_refused(quality_policy, "missing required field",
+                       provenance=synthetic_provenance(
+                           class_approval_status=REMOVED))
+
+
+@pytest.mark.parametrize("status", ["", "   ", None])
+def test_b14_t6_a_blank_class_approval_status_is_refused(quality_policy, status):
+    assert_run_refused(quality_policy, "invariant 9 (approval status recorded)",
+                       provenance=synthetic_provenance(
+                           class_approval_status=status))
+
+
+def test_b14_t6_no_single_approval_token_is_hard_coded(quality_policy):
+    """Any non-empty status is accepted, and none appears in the adapter source.
+
+    A later frozen class-selection procedure may report its own approval status.
+    Pinning one literal string inside the generic algorithm would refuse it, and
+    inventing a human approval token here would be worse still.
+
+    The pilot's own token does appear in the module docstring, where the B1.1
+    PROVENANCE LIMITATION note explains which file records it and why this module
+    does not read it. That is documentation. What must not exist is a string
+    LITERAL in executable code carrying an approval value, so the check below
+    walks the AST and ignores docstrings rather than grepping the file.
+    """
+    for status in ("HUMAN_APPROVED_FOR_ENGINEERING_PILOT",
+                   "SOME_FUTURE_FROZEN_CLASS_SELECTION_STATUS"):
+        _case, selection, record = synthetic_run(
+            quality_policy,
+            provenance=synthetic_provenance(class_approval_status=status))
+        assert selection is not None
+        assert record["phase_b1_provenance"]["class_approval_status"] == status
+
+    tree = ast.parse(INPUTS_SOURCE.read_text("utf-8"))
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)):
+            first = node.body[0] if node.body else None
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+                docstrings.add(id(first.value))
+    literals = [node.value for node in ast.walk(tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                and id(node) not in docstrings]
+    assert [text for text in literals if "APPROVED" in text] == []
+
+
+@pytest.mark.parametrize("field", ["candidate_roster_source",
+                                   "candidate_roster_sha256"])
+def test_b14_t6_missing_candidate_roster_provenance_is_refused(quality_policy,
+                                                               field):
+    """Without an artefact identity the selection cannot be reproduced at all."""
+    assert_run_refused(quality_policy, "missing required field",
+                       provenance=synthetic_provenance(**{field: REMOVED}))
+    assert_run_refused(quality_policy,
+                       "invariant 9 (candidate roster identity recorded)",
+                       provenance=synthetic_provenance(**{field: ""}))
+
+
+@pytest.mark.parametrize("declaration", [False, None, "yes", 1, REMOVED])
+def test_b14_t6_an_undeclared_complete_pool_is_refused(quality_policy, declaration):
+    """The roster must be DECLARED complete, not merely look contiguous.
+
+    A top-k slice of a frozen ranking is contiguous from rank 1 and passes every
+    structural check, while shrinking the anonymity denominator and redefining
+    what "the first m of the frozen ranking" means. Only the caller knows, so
+    only the caller can say, and a truthy placeholder is not a declaration.
+    """
+    fragment = ("missing required field" if declaration is REMOVED
+                else "invariant 4 (complete ranked candidate pool)")
+    assert_run_refused(quality_policy, fragment,
+                       provenance=synthetic_provenance(
+                           candidate_roster_is_complete_admitted_pool=declaration))
+
+
+def test_b14_t6_the_required_provenance_keys_are_the_documented_ones():
+    """The contract is a named tuple of keys, not a scatter of ad-hoc lookups."""
+    assert set(REQUIRED_RUN_PROVENANCE) == {
+        "candidate_roster_source", "candidate_roster_sha256",
+        "candidate_roster_is_complete_admitted_pool", "selected_class_uri",
+        "class_approval_status", *PINNED_LROLESIM_EXECUTION}
+
+
+# --------------------------------------------------------------------------
+# B1.4-T7. No selection is a measurement, not a defect to repair
+# --------------------------------------------------------------------------
+
+
+def test_b14_t7_a_two_candidate_class_stays_unselectable(quality_policy):
+    """k = 3 distractors cannot be drawn from two candidates, and that is the answer.
+
+    Nothing widens the pool, weakens the policy or invents a third candidate. The
+    run still produces a case and a full provenance record, because a feasibility
+    failure that cannot be reproduced cannot be counted in a yield experiment.
+    """
+    case, selection, record = synthetic_run(quality_policy, candidate_count=2)
+    assert selection is None
+    assert len(case.candidates) == 2
+    assert record["selection"] is None
+    provenance = record["phase_b1_provenance"]
+    assert provenance["selection_outcome"] == "NO_FEASIBLE_SELECTION"
+    assert provenance["original_candidate_count"] == 2
+    assert provenance["search_scope"] is None
+    assert provenance["global_optimality_claim"] is None
+    assert provenance["class_approval_status"]
+
+
+def test_b14_t7_an_answer_with_no_eligible_fact_stays_unselectable(quality_policy):
+    """The other feasibility failure: enough candidates, no usable evidence.
+
+    Every candidate here was born in Tokyo too, so the one fact SUPPORTS the
+    proposition for all of them, sets no coverage bit at any threshold, and no
+    combination reaches full coverage. That is the correct scientific outcome and
+    not something a weaker policy may rescue.
+    """
+    uris = [SYNTHETIC_DISTRACTOR % i for i in range(1, 5)]
+    triples = [(ANSWER, BORN_IN, TOKYO)] + [(uri, BORN_IN, TOKYO) for uri in uris]
+    case, selection, record = build_and_select(
+        ANSWER, "Synthetic Answer",
+        tuple(Candidate(rank=i, score=1.0 / i, uri=uri)
+              for i, uri in enumerate(uris, start=1)),
+        local_kg=SyntheticKG("b14-supported", triples),
+        quality_policy=quality_policy, semantic_index=containment_index(),
+        rulebook=empty_rulebook(), scope=SYNTHETIC_SCOPE,
+        provenance=synthetic_provenance())
+    assert [fact.levels for fact in case.facts] == [("NOT_COVERED",) * 4]
+    assert selection is None
+    assert record["phase_b1_provenance"]["selection_outcome"] == \
+        "NO_FEASIBLE_SELECTION"
+
+
+# --------------------------------------------------------------------------
+# B1.4-T8. The emitted provenance record
+# --------------------------------------------------------------------------
+
+
+def test_b14_t8_the_emitted_record_is_deterministic(quality_policy):
+    """Two runs on the same inputs serialise byte-identically."""
+    first = synthetic_run(quality_policy)[2]
+    second = synthetic_run(quality_policy)[2]
+    assert json.dumps(first, sort_keys=True, ensure_ascii=False) == \
+        json.dumps(second, sort_keys=True, ensure_ascii=False)
+
+
+@requires_pinned_kg
+def test_b14_t8_the_pilot_record_is_deterministic(local_runs, pinned_kg,
+                                                  quality_policy,
+                                                  pilot_prompt8d_inputs,
+                                                  pilot_answer_inputs,
+                                                  pilot_semantic_index,
+                                                  pilot_rulebook):
+    """One pilot Answer rebuilt a second time, from scratch, on the real graph."""
+    answer = next(a for a in pilot_answer_inputs if a.answer_uri == SATO)
+    with no_network(NETWORK_ATTEMPTS):
+        _case, _selection, again = build_and_select(
+            answer.answer_uri, answer.display_label,
+            tuple(Candidate(rank=view.rank, score=view.score,
+                            uri=view.canonical_candidate_uri)
+                  for view in answer.ranked_candidates),
+            local_kg=pinned_kg, quality_policy=quality_policy,
+            semantic_index=pilot_semantic_index, rulebook=pilot_rulebook,
+            scope=answer.scope,
+            provenance=pilot_provenance(
+                answer, approvals=pilot_class_approvals(),
+                roster_sha256=pilot_prompt8d_inputs.input_sha256[
+                    "candidate_ranking_handoff.jsonl"]))
+    assert json.dumps(again, sort_keys=True, ensure_ascii=False) == \
+        json.dumps(local_runs[SATO][2], sort_keys=True, ensure_ascii=False)
+
+
+@requires_pinned_kg
+def test_b14_t8_every_reproducibility_field_is_present_and_true(local_runs,
+                                                                pinned_kg,
+                                                                quality_policy,
+                                                                pilot_rulebook,
+                                                                pilot_semantic_index):
+    """Enough provenance to rebuild the run, and each digest is the one used.
+
+    The four policy digests and the graph digest are read off the ALREADY-LOADED
+    objects, so this test compares them against those same objects rather than
+    against a copy of the numbers: a caller-declared digest could be stale, and
+    a hard-coded expectation here would only prove the test was updated.
+    """
+    for uri, (_case, selection, record) in local_runs.items():
+        provenance = record["phase_b1_provenance"]
+        assert provenance["answer_uri"] == uri
+        assert provenance["pinned_kg_sha256"] == pinned_kg.source_sha256 == \
+            PINNED_KG_SHA256
+        assert provenance["quality_policy_sha256"] == quality_policy.policy_sha256
+        assert provenance["evidence_rules_sha256"] == pilot_rulebook.policy_sha256
+        assert provenance["semantic_relation_policy_sha256"] == \
+            pilot_semantic_index.policy.policy_sha256
+        assert provenance["semantic_index_available"] is True
+        assert provenance["semantic_index_cache_key"]["pinned_kg_sha256"] == \
+            PINNED_KG_SHA256
+        assert provenance["lrolesim_execution"] == PINNED_LROLESIM_EXECUTION
+        assert provenance["class_approval_status"] == \
+            "HUMAN_APPROVED_FOR_ENGINEERING_PILOT"
+        assert provenance["candidate_roster_sha256"]
+        assert provenance["candidate_roster_source"].endswith(
+            "candidate_ranking_handoff.jsonl")
+        assert provenance["candidate_roster_is_complete_admitted_pool"] is True
+        assert provenance["original_candidate_count"] == selection.candidate_count
+        assert provenance["selection_outcome"] == "SELECTED"
+
+
+def test_b14_t8_an_unavailable_semantic_index_is_recorded_and_never_becomes_l0(
+        quality_policy):
+    """"We did not look" is recorded as a risk; the observation keeps its level."""
+    uris = [SYNTHETIC_DISTRACTOR % i for i in range(1, 5)]
+    triples = [(ANSWER, BORN_IN, TOKYO)] + [(uri, BORN_IN, KYOTO) for uri in uris]
+    case, _selection, record = build_and_select(
+        ANSWER, "Synthetic Answer",
+        tuple(Candidate(rank=i, score=1.0 / i, uri=uri)
+              for i, uri in enumerate(uris, start=1)),
+        local_kg=SyntheticKG("b14-unavailable", triples),
+        quality_policy=quality_policy, semantic_index=missing_index(),
+        rulebook=empty_rulebook(), scope=SYNTHETIC_SCOPE,
+        provenance=synthetic_provenance())
+    assert [fact.levels for fact in case.facts] == [("L1",) * 4]
+    assert [fact.granularity_risks for fact in case.facts] == \
+        [("UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE",) * 4]
+    provenance = record["phase_b1_provenance"]
+    assert provenance["semantic_index_available"] is False
+    assert provenance["semantic_index_unavailable_reason"]
+
+
+def test_b14_t8_the_record_reuses_canonical_record_unchanged(quality_policy):
+    """One nested mapping is added; nothing published by the kernel is rewritten."""
+    case, selection, record = synthetic_run(quality_policy)
+    expected = canonical_record(case, selection)
+    assert set(record) == set(expected) | {"phase_b1_provenance"}
+    for key, value in expected.items():
+        assert record[key] == value, key
+
+
+def test_b14_t8_audit_record_is_importable_and_needs_no_new_type(quality_policy):
+    """The record is a plain dict, so it serialises without a custom encoder."""
+    case, selection, record = synthetic_run(quality_policy)
+    assert isinstance(record, dict)
+    assert isinstance(record["phase_b1_provenance"], dict)
+    assert record == audit_record(
+        case, selection, synthetic_provenance(),
+        local_kg=SyntheticKG("b14", [(ANSWER, BORN_IN, TOKYO)]),
+        quality_policy=quality_policy, semantic_index=containment_index(),
+        rulebook=empty_rulebook())
+
+
+# --------------------------------------------------------------------------
+# B1.4-T9. B1.4 stays thin, offline, and short of B2
+# --------------------------------------------------------------------------
+
+
+def test_b14_t9_the_frozen_kernel_is_untouched_by_b14():
+    """Step 4 adds a caller of the kernel, not a change to it."""
+    assert hashlib.sha256(CORE_SOURCE.read_bytes()).hexdigest() == FROZEN_KERNEL_SHA256
+
+
+@requires_pinned_kg
+def test_b14_t9_the_reconstruction_attempted_no_connection(local_runs):
+    """The eight-Answer gate ran inside the connection guard and recorded nothing."""
+    assert len(local_runs) == 8
+    assert NETWORK_ATTEMPTS == []
+
+
+@requires_pinned_kg
+def test_b14_t9_the_pinned_graph_is_still_loaded_exactly_once(local_runs):
+    """B1.4 opens no file at all: it receives the one graph the fixture loaded."""
+    assert PINNED_KG_LOADS == [str(PINNED_KG)]
+
+
+def test_b14_t9_b2_has_not_been_started():
+    """No verbalization, no choice-evidence bipartite graph, no member retrieval.
+
+    B1.4 closes B1 by connecting existing pieces. Everything B2 would add — a
+    real new candidate roster, class member retrieval, sentence generation, the
+    choice-evidence bipartite graph, the 100-Answer batch — needs the external
+    preconditions that have not cleared, and none of it is here.
+    """
+    text = INPUTS_SOURCE.read_text("utf-8")
+    for banned in ("def verbalize", "bipartite", "dcterms", "class_member",
+                   "def run_batch", "Albert_Einstein"):
+        assert banned not in text, banned
+
+
+def test_b14_t9_no_new_result_type_was_introduced():
+    """No wrapper class, service object, runner hierarchy or result dataclass.
+
+    ``build_and_select()`` returns a plain tuple of the kernel's own types plus a
+    plain dict, so B1.4 contributes no new vocabulary to the pipeline.
+    """
+    tree = ast.parse(INPUTS_SOURCE.read_text("utf-8"))
+    defined = [node.name for node in ast.walk(tree)
+               if isinstance(node, ast.ClassDef)]
+    assert defined == ["FrozenInputError", "AnswerNotFoundError",
+                       "InputContractError"]
