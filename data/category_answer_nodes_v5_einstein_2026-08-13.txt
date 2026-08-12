@@ -1,0 +1,3 @@
+# Phase B2-A (Prompt 8H-B2-A) automatic Albert Einstein class-selection input.
+# One Answer URI, for the v5 (R1-safe hard class-leakage gate) selector runner.
+http://dbpedia.org/resource/Albert_Einstein
