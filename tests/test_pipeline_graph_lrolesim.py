@@ -59,8 +59,18 @@ FROZEN_DIR = REPO_ROOT / "outputs" / "journal2_week1_local_mapping_2026-07-30"
 PROTECTED_SOURCE_SHA256 = {
     "src/MCQ_lrolesim_ClaudeWeb_v2.py":
         "b7c3678ee531a291dee874053529ac498d8c7674b892cff19e817808671ddec0",
+    # Rebaselined 2026-08-12 (Prompt 8H-B1.5-R1) after a stronger recursive
+    # code-object comparison (co_code, co_consts, co_names, signature
+    # fields, co_exceptiontable -- not co_code alone) found
+    # semantic_differences_outside_main == 0 against the historical
+    # .pyc-recovered code object. See docs/audits/MCQ_LROLESIM_SOURCE_PIN_AUDIT.md
+    # and docs/audits/MCQ_LROLESIM_SOURCE_PIN_CLOSEOUT.md. This file is a
+    # reference/archive-only source, NOT the executed Journal-2 LRoleSim
+    # kernel: the executed kernel remains src/MCQ_lrolesim_ClaudeWeb_v2.py
+    # (pinned separately below, unchanged). Rebaselining records the
+    # verified current archive bytes; it does not authorize future edits.
     "src/MCQ_lrolesim.py":
-        "cdd4f90c006dc57d97ecccf79685efcd553e60be12dc86cfd66d205f5b6ff15b",
+        "a286fe08719a6a049638548aee7526c069b3fec2ab621bec8d540059d3f03617",
     "src/kg/graph_view.py":
         "0ed2733307ef8116b4ba79c906e8e880711e06f011418b0da3104e4c99716ec4",
     "src/kg/loader.py":
