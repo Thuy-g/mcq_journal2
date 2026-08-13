@@ -674,6 +674,8 @@ def build_semantic_index_from_pinned_kg(
     local_kg_path: str | Path = PINNED_LOCAL_KG,
     policy_path: str | Path = SEMANTIC_POLICY_PATH,
     cache_path: str | Path = DEFAULT_SEMANTIC_INDEX_CACHE,
+    source_object_uris: Optional[Sequence[str]] = None,
+    local_kg=None,
     verbose: bool = True,
 ) -> Path:
     """Read the pinned KG ONCE and write the bounded semantic index cache.
@@ -684,18 +686,43 @@ def build_semantic_index_from_pinned_kg(
     that merely importing this module does not pull the loader in. Only
     counterpart URIs from the pilot, and the ancestors reachable from them
     within the policy's depth, are indexed; nothing writes to the KG.
+
+    TWO OPTIONAL ARGUMENTS, ADDED FOR PROMPT 8H-B2-B, BOTH DEFAULTING TO THE
+    ORIGINAL BEHAVIOUR
+        `source_object_uris` supplies the source-object list explicitly instead
+        of deriving it from the frozen Prompt-8D handoff. It exists because the
+        source-object list IS part of the cache key, so a genuinely new Answer
+        needs an index built for ITS objects: the pilot cache legitimately
+        refuses to load for a different set, and reusing it would be a cache-key
+        violation. When it is None the pilot list is derived exactly as before
+        and the frozen handoff is read exactly as before.
+
+        `local_kg` accepts an ALREADY-LOADED graph so that a caller which has
+        the 1.2 GB pickle open for other stages does not pay to load it twice.
+        When it is None the pickle is opened here, as before.
+
+    Neither argument changes the traversal, the policy, the depth bound, the
+    cache-key construction or the written record shape. With both omitted this
+    function is byte-for-byte the same computation it was.
     """
     from kg.loader import load_local_kg           # local: build-mode only
 
     policy = load_semantic_relation_policy(policy_path)
-    inputs = load_prompt8d_handoff(prompt8d_dir)
-    sources = pilot_object_uris(inputs)
+    if source_object_uris is None:
+        inputs = load_prompt8d_handoff(prompt8d_dir)
+        sources = pilot_object_uris(inputs)
+        described = "pilot"
+    else:
+        # Normalized and re-sorted here so that the digest cannot depend on the
+        # caller's ordering or on a bracketed URI spelling.
+        sources = tuple(sorted({normalize_uri(str(uri)) for uri in source_object_uris}))
+        described = "supplied"
     if verbose:
-        print(f"  semantic index: {len(sources)} pilot counterpart URIs, "
+        print(f"  semantic index: {len(sources)} {described} counterpart URIs, "
               f"{len(policy.traversal_rules)} allowlisted traversal rules, "
               f"max depth {policy.max_depth}")
 
-    kg = load_local_kg(local_kg_path)
+    kg = load_local_kg(local_kg_path) if local_kg is None else local_kg
     allow = {rule.predicate_uri: rule for rule in policy.traversal_rules}
 
     def plain(index: int) -> Optional[str]:

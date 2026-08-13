@@ -1,0 +1,56 @@
+{
+ "cache_key": {
+  "creation_command": "python src/extract_and_select_distractors_v3.py --mode build-semantic-index",
+  "max_depth": 4,
+  "pinned_kg_sha256": "e230c5b95e20093631697624d9c46f30a14081b3f415d5027ffaf313bdbbea1b",
+  "policy_sha256": "4336b3b003324431ac9b7304d29617d6d83e2a3d3a2c7f79ee0d9ca4d2fa078a",
+  "source_object_list_sha256": "a16a5a27aff1d7d15f6c746cc9be7aa987455a2e16dfea115647cf8c1025f010"
+ },
+ "format": "rationale_v3.semantic_index/1",
+ "indexed_object_count": 91,
+ "parent_edges": [
+  {
+   "child_uri": "http://dbpedia.org/resource/Chelmer_Valley_High_School",
+   "parent_uri": "http://dbpedia.org/resource/Chelmsford",
+   "predicate_uri": "http://dbpedia.org/property/city",
+   "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+   "rule_id": "PLACE_CONTAINMENT_CITY_V1"
+  },
+  {
+   "child_uri": "http://dbpedia.org/resource/Chelmer_Valley_High_School",
+   "parent_uri": "http://dbpedia.org/resource/England",
+   "predicate_uri": "http://dbpedia.org/property/country",
+   "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+   "rule_id": "PLACE_CONTAINMENT_COUNTRY_V1"
+  },
+  {
+   "child_uri": "http://dbpedia.org/resource/Chelmer_Valley_High_School",
+   "parent_uri": "http://dbpedia.org/resource/Essex",
+   "predicate_uri": "http://dbpedia.org/property/county",
+   "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+   "rule_id": "PLACE_CONTAINMENT_COUNTY_V1"
+  },
+  {
+   "child_uri": "http://dbpedia.org/resource/Subtle_is_the_Lord",
+   "parent_uri": "http://dbpedia.org/resource/England",
+   "predicate_uri": "http://dbpedia.org/property/country",
+   "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+   "rule_id": "PLACE_CONTAINMENT_COUNTRY_V1"
+  },
+  {
+   "child_uri": "http://dbpedia.org/resource/Subtle_is_the_Lord",
+   "parent_uri": "http://dbpedia.org/resource/United_States",
+   "predicate_uri": "http://dbpedia.org/property/country",
+   "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+   "rule_id": "PLACE_CONTAINMENT_COUNTRY_V1"
+  },
+  {
+   "child_uri": "http://dbpedia.org/resource/The_Meaning_of_Relativity",
+   "parent_uri": "http://dbpedia.org/resource/United_States",
+   "predicate_uri": "http://dbpedia.org/property/country",
+   "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+   "rule_id": "PLACE_CONTAINMENT_COUNTRY_V1"
+  }
+ ],
+ "policy_version": "semantic_relation_policy/1.0.0"
+}
