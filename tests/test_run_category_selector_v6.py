@@ -81,10 +81,14 @@ def test_alpha_and_alphas_are_mutually_exclusive():
             ["--answer-uri", "x", "--alpha", "0.5", "--alphas", "0,1"])
 
 
-def test_alpha_defaults_to_one_half():
+def test_alpha_defaults_to_the_pre_specified_working_configuration():
     args = runner_module.build_parser().parse_args(["--answer-uri", "x"])
-    assert args.alpha is None  # unset on the namespace...
-    assert v6.DEFAULT_ALPHA == 0.5  # ...and resolved to the neutral default
+    assert args.alpha is None          # unset on the namespace...
+    assert v6.DEFAULT_ALPHA == 0.7     # ...and resolved to the pre-specified 0.7
+    # The help text a user reads must not contradict the value main() applies.
+    help_text = runner_module.build_parser().format_help()
+    assert "0.7" in help_text
+    assert "neutral equal" not in help_text
 
 
 def test_an_invalid_alpha_is_rejected_before_any_work(capsys, monkeypatch):
@@ -187,16 +191,31 @@ def test_cross_cohort_duplicate_provenance_is_preserved(tmp_path):
 
 
 def test_the_repository_answers_file_matches_the_researcher_audit():
-    """Measured, not assumed: 351 Answer rows / 333 unique / 18 duplicate rows."""
+    """Measured, not assumed: 347 Answer rows / 329 unique / 18 duplicate rows.
+
+    RE-MEASURED 2026-08-17. The researcher edited `data/Answers.txt` after
+    commit c1928a7: four Answer rows were removed and the one row that satisfied
+    the grammar without being a valid IRI (`...Magnesium_oxide"`, a stray double
+    quote) was corrected. The previous frozen expectation — 351 / 333 / 18 with
+    one unqueryable row — therefore failed on an unmodified checkout, and the
+    numbers below are what the current file actually contains.
+
+    `data/Answers.txt` is the researcher's input dataset and is untracked in git,
+    so this assertion is a CONSISTENCY CHECK between the parser and the file on
+    disk, not a claim that the corpus may not change. It is written as exact
+    equalities on purpose: a silently shrinking denominator makes every coverage
+    percentage computed from this corpus wrong, and a failing test is how that
+    change announces itself.
+    """
     parsed = runner_module.parse_answers_file(REPO_ROOT / "data" / "Answers.txt")
     audit = parsed.audit()
-    assert audit["answer_uri_rows"] == 351
-    assert audit["unique_answer_uris"] == 333
+    assert audit["answer_uri_rows"] == 347
+    assert audit["unique_answer_uris"] == 329
     assert audit["duplicate_answer_rows"] == 18
     assert audit["malformed_rows"] == []
-    # One of the 351 rows is not a valid IRI and is excluded from a run.
-    assert len(audit["invalid_uri_rows"]) == 1
-    assert audit["runnable_unique_answer_uris"] == 332
+    # Every row is now a queryable IRI, so runnable == unique.
+    assert audit["invalid_uri_rows"] == []
+    assert audit["runnable_unique_answer_uris"] == 329
     assert audit["cohort_header_lines"] == 13
 
 

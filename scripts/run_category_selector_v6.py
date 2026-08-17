@@ -62,6 +62,7 @@ if str(SRC_DIR) not in sys.path:
 
 from category_extractor_v6 import (  # noqa: E402
     DEFAULT_ALPHA,
+    DEFAULT_DERIVATIONAL_POLICY,
     DEFAULT_CACHE_PATH,
     DEFAULT_ENDPOINT,
     DEFAULT_SBERT_MODEL,
@@ -373,13 +374,23 @@ RANKING_COLUMNS = [
     "wikipedia_revision_id", "category_uri", "category_label", "feasible_rank",
     "remote_count", "eligible_remote_count", "raw_idf", "normalized_idf",
     "raw_sbert", "normalized_sbert", "combined_score", "leak_level",
-    "leak_source", "leak_evidence",
+    "leak_status", "leak_source", "leak_evidence", "r1_leak_level",
+    "class_rule_leak_evidence",
 ]
 
+# `rejected_code` IS the primary rejection code — the first gate that fired in
+# the declared gate order — and keeps its name so every artifact recorded before
+# this repair stays readable. `rejection_reasons` is the new column that carries
+# every reason that is true SIMULTANEOUSLY, which is what makes a class that is
+# both too small AND answer-revealing reportable without losing either fact.
+# `leak_status` separates "the rules ran and found nothing" from "the rules could
+# not run", and `r1_leak_level` preserves the frozen rule's own verdict so the
+# effect of the class-only extension is visible per row.
 REJECTED_COLUMNS = [
     "cohort", "answer_uri", "answer_display_label", "category_uri",
-    "category_label", "rejected_code", "rejected_reason", "remote_count",
-    "eligible_remote_count", "leak_level", "leak_source", "leak_evidence",
+    "category_label", "rejected_code", "rejection_reasons", "rejected_reason",
+    "remote_count", "eligible_remote_count", "leak_level", "leak_status",
+    "leak_source", "leak_evidence", "r1_leak_level", "class_rule_leak_evidence",
 ]
 
 SUMMARY_COLUMNS = [
@@ -429,8 +440,11 @@ def _ranking_rows(ranking: AnswerRanking, cohort: Optional[str]) -> list[dict[st
             "normalized_sbert": entry.normalized_sbert,
             "combined_score": entry.combined_score,
             "leak_level": feature.leak_level.value,
+            "leak_status": feature.leak_status.value,
             "leak_source": feature.leak_source,
             "leak_evidence": feature.leak_evidence,
+            "r1_leak_level": feature.r1_leak_level.value,
+            "class_rule_leak_evidence": feature.class_rule_leak_evidence,
         })
     return rows
 
@@ -441,6 +455,11 @@ def _rejected_rows(features: AnswerFeatures, cohort: Optional[str]) -> list[dict
     There is deliberately no rank column here. A rejected class did not go
     through the ranking policy, so any number in a rank column would be a
     fabricated position that a reader sorting the file could act on.
+
+    Its leakage columns are now TRUE INDEPENDENTLY of why it was rejected. A
+    class refused for being too small still reports the leakage level of its
+    name, because the two are different questions and only one of them is about
+    class size.
     """
     return [{
         "cohort": cohort,
@@ -449,12 +468,16 @@ def _rejected_rows(features: AnswerFeatures, cohort: Optional[str]) -> list[dict
         "category_uri": c.category_uri,
         "category_label": c.category_label,
         "rejected_code": c.rejected_code,
+        "rejection_reasons": c.rejection_reasons,
         "rejected_reason": c.rejected_reason,
         "remote_count": c.remote_count,
         "eligible_remote_count": c.eligible_remote_count,
         "leak_level": c.leak_level.value,
+        "leak_status": c.leak_status.value,
         "leak_source": c.leak_source,
         "leak_evidence": c.leak_evidence,
+        "r1_leak_level": c.r1_leak_level.value,
+        "class_rule_leak_evidence": c.class_rule_leak_evidence,
     } for c in features.rejected_classes]
 
 
@@ -603,6 +626,15 @@ def format_single_answer_report(ranking: AnswerRanking, cohort: Optional[str] = 
     for feature in sorted(rejected, key=lambda c: (c.rejected_code or "", c.category_uri)):
         add(f"  [{feature.rejected_code}] {feature.category_uri}")
         add(f"      {feature.rejected_reason}")
+        # Every independent reason, not only the primary one, and the leakage
+        # annotation whether or not leakage is why the class was refused.
+        if len(feature.rejection_reasons) > 1:
+            add(f"      all independent rejection reasons: "
+                f"{', '.join(feature.rejection_reasons)}")
+        add(f"      leakage: {feature.leak_level.value} "
+            f"[{feature.leak_status.value}] via {feature.leak_source}"
+            + (f"   (frozen R1 alone said: {feature.r1_leak_level.value})"
+               if feature.leak_changed_by_class_rule else ""))
         if feature.leak_evidence:
             add(f"      leak evidence: {', '.join(feature.leak_evidence)}")
     add("=" * 100)
@@ -834,6 +866,9 @@ def _manifest(args: argparse.Namespace, context: RunContext,
             / "policies" / "predicate_policy.json"),
         "r1_policy_sha256": context.policy.policy_sha256,
         "r1_policy_version": context.policy.version,
+        # The CLASS-ONLY leakage extension, recorded in full so a rejection can
+        # be reproduced from the manifest without reading the source.
+        "class_leakage_policy": DEFAULT_DERIVATIONAL_POLICY.as_record(),
         "input_path": parsed.path if parsed else None,
         "input_sha256": sha256_file(parsed.path) if parsed else None,
         "input_audit": parsed.audit() if parsed else None,
@@ -1013,9 +1048,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     weight = parser.add_mutually_exclusive_group()
     weight.add_argument("--alpha", type=float, default=None,
-                        help=f"semantic weight, 0 <= alpha <= 1 "
-                             f"(default {DEFAULT_ALPHA}, a neutral equal "
-                             f"weighting, NOT a claim of optimality)")
+                        help=f"semantic weight, 0 <= alpha <= 1 (default "
+                             f"{DEFAULT_ALPHA}, the pre-specified main working "
+                             f"configuration selected after the development "
+                             f"sensitivity analysis; NOT a claim of optimality)")
     weight.add_argument("--alphas", type=str, default=None,
                         help="comma-separated alphas for a sweep, e.g. "
                              "0,0.25,0.5,0.7,0.75,1")

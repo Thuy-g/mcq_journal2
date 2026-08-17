@@ -328,12 +328,27 @@ def test_valid_alpha_is_accepted(alpha):
     assert v6.validate_alpha(alpha) == alpha
 
 
-def test_default_alpha_is_a_neutral_one_half():
-    assert v6.DEFAULT_ALPHA == 0.5
+def test_default_alpha_is_the_pre_specified_main_working_configuration():
+    """0.7 — chosen by the researcher AFTER the development sensitivity study
+    and fixed BEFORE the ~100-Answer experiment. Not an optimality claim.
+
+    The value is asserted here, in the runner test, and in the module comment,
+    so that any future change has to move all three together and cannot leave
+    the executable default disagreeing with the documented one — which is
+    exactly the inconsistency this test was rewritten to remove.
+    """
+    assert v6.DEFAULT_ALPHA == 0.7
 
 
 def test_sweep_alphas_are_exactly_the_requested_grid():
+    """The sensitivity grid is UNCHANGED by the choice of a working default.
+
+    0.5 stays in the grid: it is the neutral weighting the earlier development
+    runs used, and deleting it would destroy the sensitivity evidence the 0.7
+    decision was made from.
+    """
     assert v6.SWEEP_ALPHAS == (0.0, 0.25, 0.5, 0.7, 0.75, 1.0)
+    assert v6.DEFAULT_ALPHA in v6.SWEEP_ALPHAS
 
 
 def test_combine_alpha_endpoints():

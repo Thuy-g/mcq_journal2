@@ -50,14 +50,15 @@
 #       explicitly supplied N exists, the run REFUSES to score rather than
 #       inventing 6,000,000 or 6,685,753.
 #
-#   C4  ALPHA IS A NEUTRAL 0.5 AND A SWEEP REUSES FROZEN FEATURES. v5 defaults to
-#       alpha=0.7. v6 defaults to 0.5 — a neutral equal weighting chosen BEFORE
-#       any sensitivity analysis, explicitly not a claim of optimality. Ranking
+#   C4  ALPHA IS A PRE-SPECIFIED 0.7 AND A SWEEP REUSES FROZEN FEATURES. Ranking
 #       is split into (a) feature extraction, which performs every network call
 #       exactly once, and (b) :func:`rank_feasible_classes`, a pure function of
 #       those frozen features and one alpha. A six-alpha sweep therefore costs
 #       the same traffic as a single run and is guaranteed to compare six
-#       rankings of the SAME observations.
+#       rankings of the SAME observations. The executable default is 0.7, the
+#       researcher's PRE-SPECIFIED main working configuration fixed after the
+#       development sensitivity analysis and before the ~100-Answer experiment;
+#       it is not claimed to be an optimum. See DEFAULT_ALPHA below.
 #
 #   S   SUBTRACTION. v6 drops v5's manual/first_feasible modes, its WordNet and
 #       spaCy hooks, its v4-compatible ``detect_leak`` and its redirect
@@ -87,14 +88,37 @@
 #   whole run. The census in the runner reports the availability of both, which
 #   is a coverage statement and not a quality comparison.
 #
-# WHY HARD LEAKAGE IS THE FROZEN R1 RULE AND NOTHING ELSE
+# WHY HARD LEAKAGE IS THE FROZEN R1 RULE PLUS ONE EXPLICIT CLASS-ONLY RULE
 #   ``rationale_v3.quality.detect_answer_leakage`` ("R1") is imported and called,
 #   never paraphrased. It is deterministic, model-free, and reads its four
-#   thresholds from the SHA-256-pinned ``predicate_policy.json``. WordNet, spaCy,
-#   embeddings and LLMs cannot participate in a HARD rejection here — they are
-#   not imported by this module at all, which is a structural guarantee rather
-#   than a policy someone must remember. SOFT leakage annotates and may inform
-#   ranking; it never rejects.
+#   thresholds from the SHA-256-pinned ``predicate_policy.json``.
+#
+#   R1 alone is not sufficient for a CLASS LABEL. R1's HARD branch requires that
+#   one complete token be a prefix of the other, which is right for a rationale
+#   counterpart and leaves ``Aristotle`` / ``Category:Aristotelian_philosophers``
+#   at SOFT — an answer-revealing class name that would remain feasible. So a
+#   SECOND, CLASS-ONLY rule is composed on top: ``classes.class_leakage``, a
+#   deterministic derivational/eponymic detector with an explicit suffix list, a
+#   minimum stem length and a bounded edit distance. It can only RAISE a verdict
+#   to HARD, it never contradicts or modifies R1, and by construction it is
+#   almost empty on top of R1 (a suffix that attaches without altering the stem
+#   is already a LONG_PREFIX hard leak).
+#
+#   WordNet, spaCy, embeddings and LLMs cannot participate in a HARD rejection
+#   here — they are not imported by this module or by ``classes.class_leakage``,
+#   which is a structural guarantee rather than a policy someone must remember.
+#   SOFT leakage annotates and may inform ranking; it never rejects.
+#
+# WHY A SIZE-REJECTED CLASS STILL CARRIES A TRUTHFUL LEAKAGE ANNOTATION
+#   Feasibility and leakage are INDEPENDENT diagnostics and are computed
+#   independently. Before this version the leakage gate ran only on classes that
+#   had already survived the size gates, so ``Aristotle`` / ``Category:Aristotle``
+#   was published as ``leak_level = no_leak`` purely because it was too small to
+#   reach the leakage test — a scientifically false annotation, even though the
+#   class was (correctly) excluded on its size. Leakage is now evaluated for
+#   every syntactically valid, non-administrative candidate class, whatever else
+#   later rejects it, and a class whose URI cannot be adapted for the comparison
+#   is stamped NOT_EVALUATED rather than defaulted to ``no_leak``.
 #
 # IMPORT-TIME PURITY
 #   Importing this module opens no socket, creates no file, loads no model and
@@ -138,6 +162,20 @@ from classes.wikipedia_lead import (
     iso_utc,
     sha256_text,
 )
+# The CLASS-ONLY leakage extension. It imports R1 and composes on top of it; it
+# never re-implements or relaxes R1. Kept in its own module so the extra rule can
+# be read, tested and audited without reading the selector, and so this module's
+# "no model participates in a HARD rejection" guarantee stays inspectable as an
+# import list.
+from classes.class_leakage import (
+    LEAK_STATUS_EVALUATED,
+    LEAK_STATUS_NOT_EVALUATED,
+    DEFAULT_DERIVATIONAL_POLICY,
+    ClassLeakVerdict,
+    DerivationalPolicy,
+    classify_class_leakage_extended as _classify_class_leakage_extended,
+    not_evaluated_verdict,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -165,7 +203,11 @@ __all__ = [
     "category_display_label",
     "load_r1_leakage_policy",
     "classify_class_leakage",
+    "classify_class_leakage_extended",
     "LeakVerdict",
+    "LeakStatus",
+    "DEFAULT_DERIVATIONAL_POLICY",
+    "DerivationalPolicy",
     "standard_idf",
     "rank_normalize",
     "combine_alpha",
@@ -223,16 +265,26 @@ DEFAULT_MAX_REMOTE_CANDIDATES = 5000   # the declared broad-category maximum
 DEFAULT_CATEGORY_LIMIT = 200           # max dcterms:subject values fetched per Answer
 DEFAULT_COUNT_BATCH_SIZE = 100         # categories per COUNT query
 
-# WHY 0.5 IS THE DEFAULT AND WHY THAT IS NOT AN OPTIMALITY CLAIM
-#   0.5 weights the two rank-normalised components equally. It is the only value
-#   that can be defended WITHOUT having run a sensitivity analysis, because it
-#   encodes no belief about which component is more informative. The six-alpha
-#   sweep exists precisely because the right weight is an open empirical
-#   question; picking a "best" alpha from nine development Answers would be
-#   fitting a hyper-parameter on a sample far too small to support the claim.
-DEFAULT_ALPHA = 0.5
+# WHY 0.7 IS THE DEFAULT AND WHY THAT IS NOT AN OPTIMALITY CLAIM
+#   0.7 is the PRE-SPECIFIED MAIN WORKING CONFIGURATION selected by the
+#   researcher after the development sensitivity analysis and fixed BEFORE the
+#   ~100-Answer downstream experiment. It is not claimed to be an optimum, is not
+#   claimed to be statistically better than any other value, and was not selected
+#   by optimising a downstream outcome: choosing a "best" alpha from a handful of
+#   development Answers would be fitting a hyper-parameter on a sample far too
+#   small to support the claim.
+#
+#   Fixing it in advance is what the pre-specification buys. A class choice made
+#   after inspecting six weightings would be a post-hoc selection; a class choice
+#   made at one declared weighting is a measurement whose configuration is on the
+#   record. Earlier development runs used 0.5, the neutral equal weighting, and
+#   that evidence is retained — SWEEP_ALPHAS still contains 0.5 and the recorded
+#   six-alpha sweeps are not deleted or re-run.
+DEFAULT_ALPHA = 0.7
 
-# The exact sensitivity grid this phase reports (Prompt §K).
+# The exact sensitivity grid this phase reports (Prompt §K). Unchanged: the
+# sweep is the sensitivity evidence and its grid must not move when the main
+# working configuration is chosen from inside it.
 SWEEP_ALPHAS: tuple[float, ...] = (0.0, 0.25, 0.5, 0.7, 0.75, 1.0)
 
 CATEGORY_PREFIX = "http://dbpedia.org/resource/Category:"
@@ -314,6 +366,20 @@ class LeakLevel(str, Enum):
     NONE = "no_leak"
     SOFT = "soft_overlap"
     HARD = "hard_leak"
+
+
+class LeakStatus(str, Enum):
+    """Whether a leakage verdict was COMPUTED for this class.
+
+    ``LeakLevel.NONE`` means "the rules ran and found nothing". It must never be
+    readable as "the rules did not run": the two license opposite conclusions,
+    and conflating them is what published ``Aristotle`` / ``Category:Aristotle``
+    as ``no_leak`` when the class had simply been rejected on size before the
+    leakage test was reached.
+    """
+
+    EVALUATED = LEAK_STATUS_EVALUATED
+    NOT_EVALUATED = LEAK_STATUS_NOT_EVALUATED
 
 
 class SemanticSource(str, Enum):
@@ -1102,6 +1168,33 @@ def classify_class_leakage(answer_uri: str, category_uri: str, *,
         evidence=tuple(f"{a}~{b}:{kind}" for a, b, kind in result.matches))
 
 
+def classify_class_leakage_extended(
+    answer_uri: str, category_uri: str, *, policy: QualityPolicy,
+    derivational: DerivationalPolicy = DEFAULT_DERIVATIONAL_POLICY,
+) -> ClassLeakVerdict:
+    """The verdict the SELECTOR acts on: frozen R1, then the class-only rule.
+
+    This is the only leakage entry point the feasibility gate calls.
+    :func:`classify_class_leakage` above is kept unchanged and R1-only, because
+    the delta audit needs to report both verdicts for the same pair, and because
+    "what did the frozen rule alone say?" must remain answerable without
+    reconstructing an earlier version of this module.
+
+    The returned :class:`ClassLeakVerdict` carries BOTH verdicts plus a
+    ``status``: an unadaptable category URI yields
+    ``NOT_EVALUATED_UNADAPTABLE_CATEGORY_URI``, never a silent ``no_leak``. In
+    this module that branch is unreachable — every URI reaching here already
+    passed :func:`normalize_category` — but it is the branch that keeps the
+    function total and keeps the output vocabulary honest for any other caller.
+    """
+    adapted = category_uri_to_resource_uri(category_uri)
+    if adapted is None:
+        return not_evaluated_verdict(
+            "category URI could not be adapted for the leakage comparison")
+    return _classify_class_leakage_extended(
+        answer_uri, adapted, policy, derivational=derivational)
+
+
 # ---------------------------------------------------------------------------
 # 4) SCORING PRIMITIVES — pure functions
 #
@@ -1616,6 +1709,16 @@ class ClassFeature:
     similarity"). Everything in this record is fixed before any alpha is chosen,
     which is what makes the six-alpha sweep a comparison of six rankings over
     identical observations rather than six separate experiments.
+
+    LEAKAGE AND FEASIBILITY ARE SEPARATE AXES AND ARE RECORDED SEPARATELY.
+    ``rejected_code`` is the PRIMARY reason, i.e. the first gate that fired in
+    the declared gate order, and ``rejection_reasons`` lists every independent
+    reason the class was refused. A class can be simultaneously too small AND an
+    answer-revealing name, and forcing those two facts into one mutually
+    exclusive field destroys information a reviewer needs. ``leak_status``
+    distinguishes "the rules ran and found nothing" from "the rules could not
+    run"; ``r1_leak_level`` preserves what the frozen rule alone said, so the
+    effect of the class-only extension is always recoverable from the row.
     """
 
     category_uri: str
@@ -1625,12 +1728,33 @@ class ClassFeature:
     raw_idf: Optional[float] = None
     raw_sbert: Optional[float] = None
     leak_level: LeakLevel = LeakLevel.NONE
+    leak_status: LeakStatus = LeakStatus.NOT_EVALUATED
     leak_reason: Optional[str] = None
     leak_source: str = LEAKAGE_SOURCE_R1
     leak_evidence: tuple[str, ...] = ()
+    r1_leak_level: LeakLevel = LeakLevel.NONE
+    r1_leak_evidence: tuple[str, ...] = ()
+    class_rule_leak_evidence: tuple[str, ...] = ()
     feasible: bool = False
     rejected_code: Optional[str] = None
     rejected_reason: Optional[str] = None
+    rejection_reasons: tuple[str, ...] = ()
+
+    @property
+    def primary_rejected_code(self) -> Optional[str]:
+        """Alias for ``rejected_code``, named for what it actually is.
+
+        The old name is kept as the stored field so every existing reader and
+        every recorded artifact column keeps working; this property is the
+        vocabulary the provenance model uses.
+        """
+        return self.rejected_code
+
+    @property
+    def leak_changed_by_class_rule(self) -> bool:
+        """True when the class-only extension moved the verdict away from R1."""
+        return (self.leak_status is LeakStatus.EVALUATED
+                and self.leak_level is not self.r1_leak_level)
 
 
 @dataclass(frozen=True)
@@ -1697,6 +1821,52 @@ def _fetch_category_counts(
     return counts, False
 
 
+def _with_leakage(
+    candidate: ClassFeature, verdict: ClassLeakVerdict, *,
+    rejected_code: Optional[str] = None, rejected_reason: Optional[str] = None,
+) -> ClassFeature:
+    """Stamp a leakage verdict onto a class row, optionally rejecting it too.
+
+    Both verdicts are copied: the composed ``leak_level`` the gate acts on and
+    the ``r1_leak_level`` the frozen rule alone produced. Storing both is what
+    lets the delta audit be a projection of these rows rather than a second
+    computation that could disagree with the run it claims to describe.
+    """
+    stamped = replace(
+        candidate,
+        leak_level=LeakLevel(verdict.level),
+        leak_status=LeakStatus(verdict.status),
+        leak_reason=verdict.reason,
+        leak_source=verdict.source,
+        leak_evidence=verdict.evidence,
+        r1_leak_level=LeakLevel(verdict.r1_level),
+        r1_leak_evidence=verdict.r1_evidence,
+        class_rule_leak_evidence=verdict.derivational_evidence,
+    )
+    if rejected_code is None:
+        return stamped
+    return _reject(stamped, rejected_code, rejected_reason or "")
+
+
+def _reject(candidate: ClassFeature, code: str, reason: str) -> ClassFeature:
+    """Refuse a class, recording the PRIMARY code and EVERY independent reason.
+
+    ``code`` is the first gate that fired in the declared gate order and stays in
+    ``rejected_code``, so every artifact column and every reader that already
+    consumes that field keeps its previous meaning. ``rejection_reasons`` adds
+    the reasons that are true SIMULTANEOUSLY — today that is exactly the case of
+    a class rejected on size which is ALSO an answer-revealing name. Collapsing
+    those two into one field is what made a hard-leaking class publish
+    ``leak_level = no_leak``.
+    """
+    reasons = [code]
+    if (code != RejectCode.HARD_LEAK.value
+            and candidate.leak_level is LeakLevel.HARD):
+        reasons.append(RejectCode.HARD_LEAK.value)
+    return replace(candidate, feasible=False, rejected_code=code,
+                   rejected_reason=reason, rejection_reasons=tuple(reasons))
+
+
 def extract_answer_features(
     answer_uri: str,
     *,
@@ -1721,7 +1891,15 @@ def extract_answer_features(
       4. it must offer at least ``min_remote_candidates`` members EXCLUDING the
          Answer, which cannot be its own distractor;
       5. it must not exceed the declared broad-category maximum;
-      6. it must not HARD-leak the Answer under the frozen R1 rule.
+      6. it must not HARD-leak the Answer under the frozen R1 rule composed with
+         the class-only derivational/eponymic rule.
+
+    The leakage VERDICT is computed for every class with an adaptable URI before
+    gate 3, and gate 6 only acts on it. Annotation and rejection are therefore
+    independent: a class rejected at gate 4 for being too small still carries its
+    true leakage level, and its ``rejection_reasons`` lists both facts. The gate
+    ORDER is unchanged, so no class changes its PRIMARY rejection code because of
+    this reordering.
 
     STAGE 2 — RAW FEATURES for every class that survived: conventional IDF from
     the run-level N, and (when a semantic text and an encoder both exist) the
@@ -1783,23 +1961,41 @@ def extract_answer_features(
         return emit(STATUS_NO_CATEGORIES, discovered=0)
 
     # --- gates 1 and 2: URI validity and administrative categories ----------
+    #
+    # LEAKAGE IS ANNOTATED HERE, NOT AT THE END. Every class whose URI can be
+    # adapted for the comparison receives its verdict now, BEFORE any size gate
+    # can remove it from consideration. That is the whole repair: the annotation
+    # describes the Answer/class NAME PAIR and has nothing to do with how many
+    # members the class happens to have, so making it conditional on surviving a
+    # size test published false `no_leak` values for exactly the classes a
+    # reviewer is most likely to check by hand. Administrative categories are
+    # annotated too — a superset of what is required, never less.
     evaluated: list[ClassFeature] = []
     survivors: list[ClassFeature] = []
     for raw_uri in discovered:
         canonical = normalize_category(raw_uri)
         if canonical is None:
-            evaluated.append(ClassFeature(
-                category_uri=str(raw_uri), category_label="",
+            # The one case where no verdict can be produced. It is stamped
+            # NOT_EVALUATED, never `no_leak`.
+            unevaluated = not_evaluated_verdict(
+                "value does not denote a usable DBpedia category URI, so no "
+                "leakage comparison was possible")
+            evaluated.append(_with_leakage(ClassFeature(
+                category_uri=str(raw_uri), category_label=""), unevaluated,
                 rejected_code=RejectCode.INVALID_URI.value,
                 rejected_reason="value does not denote a usable DBpedia category URI"))
             continue
-        candidate = ClassFeature(category_uri=canonical,
-                                 category_label=category_display_label(canonical))
+        verdict = classify_class_leakage_extended(
+            answer_uri, canonical, policy=policy)
+        candidate = _with_leakage(
+            ClassFeature(category_uri=canonical,
+                         category_label=category_display_label(canonical)),
+            verdict)
         local_name = canonical[len(CATEGORY_PREFIX):]
         if _JUNK_RE.search(local_name):
-            evaluated.append(replace(
-                candidate, rejected_code=RejectCode.JUNK.value,
-                rejected_reason="maintenance or administrative category"))
+            evaluated.append(_reject(
+                candidate, RejectCode.JUNK.value,
+                "maintenance or administrative category"))
             continue
         survivors.append(candidate)
 
@@ -1816,10 +2012,10 @@ def extract_answer_features(
     for candidate in survivors:
         count = counts.get(candidate.category_uri)
         if count is None or count < 1:
-            evaluated.append(replace(
-                candidate, remote_count=count,
-                rejected_code=RejectCode.COUNT_UNAVAILABLE.value,
-                rejected_reason="the endpoint returned no member count for this class"))
+            evaluated.append(_reject(
+                replace(candidate, remote_count=count),
+                RejectCode.COUNT_UNAVAILABLE.value,
+                "the endpoint returned no member count for this class"))
             continue
         # Every class here came from the Answer's own dct:subject list, so the
         # Answer is necessarily one of its members and cannot be its own
@@ -1831,31 +2027,29 @@ def extract_answer_features(
                             eligible_remote_count=eligible,
                             raw_idf=standard_idf(count, idf_universe.total_entities))
         if eligible < min_remote_candidates:
-            evaluated.append(replace(
-                candidate, rejected_code=RejectCode.TOO_SMALL.value,
-                rejected_reason=(f"only {eligible} remote distractor candidates "
-                                 f"excluding the Answer (< {min_remote_candidates}); "
-                                 f"class size {count}")))
+            evaluated.append(_reject(
+                candidate, RejectCode.TOO_SMALL.value,
+                (f"only {eligible} remote distractor candidates excluding the "
+                 f"Answer (< {min_remote_candidates}); class size {count}")))
         elif count > max_remote_candidates:
-            evaluated.append(replace(
-                candidate, rejected_code=RejectCode.TOO_GENERIC.value,
-                rejected_reason=f"{count} remote members (> {max_remote_candidates})"))
+            evaluated.append(_reject(
+                candidate, RejectCode.TOO_GENERIC.value,
+                f"{count} remote members (> {max_remote_candidates})"))
         else:
             sized.append(candidate)
 
-    # --- gate 6: the frozen R1 HARD lexical leakage gate --------------------
+    # --- gate 6: the HARD lexical leakage gate ------------------------------
+    #
+    # The verdict was computed above; this loop only ACTS on it. Gate order is
+    # unchanged from the previous version — size before leakage — so a class that
+    # fails both keeps the same PRIMARY rejection code it had before, and only
+    # `rejection_reasons` grows.
     feasible: list[ClassFeature] = []
     for candidate in sized:
-        verdict = classify_class_leakage(answer_uri, candidate.category_uri,
-                                         policy=policy)
-        candidate = replace(candidate, leak_level=verdict.level,
-                            leak_reason=verdict.reason,
-                            leak_source=verdict.source,
-                            leak_evidence=verdict.evidence)
-        if verdict.is_hard:
-            evaluated.append(replace(
-                candidate, rejected_code=RejectCode.HARD_LEAK.value,
-                rejected_reason=f"hard leak (R1): {verdict.reason}"))
+        if candidate.leak_level is LeakLevel.HARD:
+            evaluated.append(_reject(
+                candidate, RejectCode.HARD_LEAK.value,
+                f"hard leak ({candidate.leak_source}): {candidate.leak_reason}"))
         else:
             feasible.append(replace(candidate, feasible=True))
 
