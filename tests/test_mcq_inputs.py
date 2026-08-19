@@ -110,7 +110,31 @@ EVIDENCE = R1_DIR / "evidence_audit_v3_r1.jsonl"
 ORACLE = R1_DIR / "selected_mcqs_v3_r1.jsonl"
 
 # The Phase-A2 kernel this adapter feeds, frozen at this digest.
-FROZEN_KERNEL_SHA256 = "ba4b378584ef1f067f81ab8ffcf2c82137293acac1915e58770f2b1b097abf63"
+#
+# RE-PINNED ONCE, DELIBERATELY, BY PROMPT 8H-B2-E §10.
+#   previous digest (Prompt 8H-B2-D and everything before it):
+#       ba4b378584ef1f067f81ab8ffcf2c82137293acac1915e58770f2b1b097abf63
+#   what moved:
+#       * `option_reference_conflicts()` was added — a pure measurement over an
+#         already-built case, with no caller in the v1 path;
+#       * `Rationale` gained `option_reference_conflict_count` and its evidence
+#         tuple, both defaulted, plus `ranking_key_v2`, `ranking_key_v3` and
+#         `ranking_key_for()`;
+#       * `rank_minimum_rationales`, `combination_objective_key` and
+#         `select_distractors` gained an `objective` parameter that DEFAULTS to
+#         `RATIONALE_OBJECTIVE_V1`;
+#       * `Selection` gained `rationale_objective`, defaulted to V1;
+#       * `canonical_record` reports the new fields.
+#   what did NOT move:
+#       `Rationale.ranking_key` is byte-for-byte the historical fourteen-field
+#       key, and with the default objective every ordering decision, every mask,
+#       every DP result and every selected triple is identical. The four
+#       byte-identity assertions below are what proves the re-pin was a single
+#       reviewed event rather than drift, and the old digest above is what a
+#       reviewer checks out to reproduce the published 329-Answer run.
+FROZEN_KERNEL_SHA256 = "ea9e783e008556129a43643c50bd676760ad441afabd3345483dfb70c27ded84"
+PREVIOUS_FROZEN_KERNEL_SHA256 = (
+    "ba4b378584ef1f067f81ab8ffcf2c82137293acac1915e58770f2b1b097abf63")
 
 SATO = "http://dbpedia.org/resource/Eisaku_Satō"
 # Silicon is the corruption fixture: 11 candidates and 3 facts, the smallest
@@ -2031,7 +2055,10 @@ def test_b13_t3_the_kernel_is_called_and_never_reimplemented():
     algorithm; none of them may be defined here.
     """
     text = INPUTS_SOURCE.read_text("utf-8")
-    assert "select_distractors(case, pool_policy, force_pool)" in text
+    # Prompt 8H-B2-E added the VERSIONED rationale objective as a fourth
+    # argument; the property under test is unchanged — the adapter still CALLS
+    # the kernel and still reimplements no part of it.
+    assert "select_distractors(case, pool_policy, force_pool, objective)" in text
     for banned in ("def build_candidate_pool", "def feasible_combinations",
                    "def combination_objective_key", "def minimum_cover_size",
                    "def coverage_mask", "def rank_minimum_rationales",

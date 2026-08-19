@@ -85,12 +85,18 @@ NOT_COVERED_EXACT_EQUAL = "NOT_COVERED_EXACT_EQUAL"
 NOT_COVERED_CANONICALLY_EQUIVALENT = "NOT_COVERED_CANONICALLY_EQUIVALENT"
 NOT_COVERED_SEMANTIC_ENTAILMENT = "NOT_COVERED_CANDIDATE_OBJECT_UNDER_CLAIM_OBJECT"
 NOT_COVERED_COMPATIBLE_QUALIFIED = "NOT_COVERED_COMPATIBLE_QUALIFIED_STATEMENT"
+#: Prompt 8H-B2-E: the candidate's object denotes the same value of THIS
+#: predicate slot under a declared, predicate-scoped equivalence rule. Kept
+#: apart from NOT_COVERED_CANONICALLY_EQUIVALENT, which is a claim about entity
+#: identity and would be false for a country/demonym pair.
+NOT_COVERED_SCOPED_VALUE_EQUIVALENT = "NOT_COVERED_PREDICATE_SCOPED_VALUE_EQUIVALENT"
 
 NOT_COVERED_REASON_CODES = (
     NOT_COVERED_EXACT_EQUAL,
     NOT_COVERED_CANONICALLY_EQUIVALENT,
     NOT_COVERED_SEMANTIC_ENTAILMENT,
     NOT_COVERED_COMPATIBLE_QUALIFIED,
+    NOT_COVERED_SCOPED_VALUE_EQUIVALENT,
 )
 
 #: The ONE L0 code in R1. Prompt 8F's L0_DIFFERENT_OBJECTS_NONEXCLUSIVE,
@@ -131,6 +137,7 @@ PROMPT8E_STATUS_FOR_REASON_CODE = {
     NOT_COVERED_CANONICALLY_EQUIVALENT: "POSITIVE_ALTERNATIVE_OBSERVED",
     NOT_COVERED_SEMANTIC_ENTAILMENT: "POSITIVE_ALTERNATIVE_OBSERVED",
     NOT_COVERED_COMPATIBLE_QUALIFIED: "POSITIVE_ALTERNATIVE_OBSERVED",
+    NOT_COVERED_SCOPED_VALUE_EQUIVALENT: "SHARED_OBSERVED",
     L0_ABSENCE_ONLY_OBSERVED: "ABSENCE_ONLY_OBSERVED",
     L1_POSITIVE_VALUE_CONTRAST: "POSITIVE_ALTERNATIVE_OBSERVED",
     **{code: "POSITIVE_ALTERNATIVE_OBSERVED" for code in L2_REASON_CODES},
@@ -189,6 +196,40 @@ RELATION_PROVEN_DISJOINT = "PROVEN_DISJOINT"
 RELATION_UNRELATED_OR_UNKNOWN = "UNRELATED_OR_UNKNOWN"
 RELATION_UNAVAILABLE = "SEMANTIC_RELATION_UNAVAILABLE"
 
+# --- Prompt 8H-B2-E additions: predicate-scoped relation domains -------------
+#
+# WHY TWO NEW RELATIONS EXIST
+#   The v1 closure admits ONE relation kind, administrative place containment,
+#   and applies it to EVERY predicate key. That makes two very different
+#   findings indistinguishable:
+#
+#     "we walked this object's parents and the claim object was not among them"
+#     "this object has no parents of any admitted kind, so nothing was walked"
+#
+#   For `dbp:birthPlace` the first reading is usually right — settlement
+#   infoboxes really do carry containment. For `dbp:field` it is never right:
+#   measured over the pinned March-2023 snapshot, `Chemistry`, `Radiochemistry`,
+#   `Biochemistry`, `Physics`, `Biology`, `Organic_chemistry` and
+#   `Physical_chemistry` have ZERO outgoing edges of ANY predicate. Reporting
+#   `UNRELATED_OR_UNKNOWN` with `granularity_risk = NONE` for a
+#   Radiochemistry/Chemistry pair therefore published a checked negative that
+#   was never checked.
+#
+# WHAT THE TWO NEW RELATIONS MEAN
+#   HIERARCHY_NOT_MODELLED  - a relation domain governs this predicate key, and
+#                             at least one of the two objects takes part in NO
+#                             edge of that domain in the pinned snapshot. It is
+#                             a statement about the snapshot's coverage, never
+#                             about the world, and it can only ADD a reported
+#                             risk. It never moves a level.
+#   SCOPED_VALUE_EQUIVALENT - two objects that denote the same value OF ONE
+#                             PREDICATE SLOT without being the same entity, e.g.
+#                             a country and its demonym under `dbp:nationality`.
+#                             It is scoped to declared predicate keys and is
+#                             never a global entity identity.
+RELATION_HIERARCHY_NOT_MODELLED = "HIERARCHY_NOT_MODELLED_FOR_THESE_OBJECTS"
+RELATION_SCOPED_VALUE_EQUIVALENT = "PREDICATE_SCOPED_VALUE_EQUIVALENT"
+
 #: Did the bounded closure actually run for this (fact, candidate) pair?
 SEMANTIC_CHECK_CLOSURE_RAN = "CLOSURE_RAN"
 SEMANTIC_CHECK_INDEX_UNAVAILABLE = "SEMANTIC_INDEX_UNAVAILABLE"
@@ -202,6 +243,14 @@ SEMANTIC_CHECK_NOT_APPLICABLE = "NOT_APPLICABLE_NO_OBSERVED_OBJECT"
 GRANULARITY_RISK_NONE = "NONE"
 GRANULARITY_RISK_PRESENT = "CLAIM_OBJECT_UNDER_CANDIDATE_OBJECT"
 GRANULARITY_RISK_UNRESOLVED = "UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE"
+
+#: A fourth reported state, added by Prompt 8H-B2-E. The closure RAN, the index
+#: was available, and a relation domain governs this predicate key — but the
+#: pinned snapshot records no hierarchy edge whatsoever for one or both of the
+#: objects, so "no path" carries no information. Like the other two non-NONE
+#: states it is REPORTED and blocks main-corpus safety; it never changes a
+#: level, never relabels L1 as L0, and never creates L1 or L2.
+GRANULARITY_RISK_HIERARCHY_UNMODELLED = "HIERARCHY_NOT_MODELLED_FOR_THESE_OBJECTS"
 
 PARENT_CHILD_NOTE = (
     "Parent-child relatedness REMOVES apparent contrast by making a fact "

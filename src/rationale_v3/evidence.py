@@ -50,6 +50,7 @@ from rationale_v3.contracts import (
     EXCLUSION_BASIS_FORMAL_PROOF,
     EXCLUSION_BASIS_NONE,
     EXCLUSION_BASIS_SCOPED_EMPIRICAL,
+    GRANULARITY_RISK_HIERARCHY_UNMODELLED,
     GRANULARITY_RISK_NONE,
     GRANULARITY_RISK_PRESENT,
     GRANULARITY_RISK_UNRESOLVED,
@@ -67,12 +68,15 @@ from rationale_v3.contracts import (
     NOT_ACTIVE_PREDICATE_REJECTED,
     NOT_COVERED_CANONICALLY_EQUIVALENT,
     NOT_COVERED_EXACT_EQUAL,
+    NOT_COVERED_SCOPED_VALUE_EQUIVALENT,
     NOT_COVERED_SEMANTIC_ENTAILMENT,
     QUALIFIER_UNAVAILABLE,
     RELATION_CANDIDATE_UNDER_CLAIM,
     RELATION_CANONICALLY_EQUIVALENT,
     RELATION_CLAIM_UNDER_CANDIDATE,
     RELATION_EXACT_EQUAL,
+    RELATION_HIERARCHY_NOT_MODELLED,
+    RELATION_SCOPED_VALUE_EQUIVALENT,
     RELATION_UNAVAILABLE,
     RULE_ACTIVE,
     RULE_INACTIVE,
@@ -93,7 +97,7 @@ from rationale_v3.semantic_relations import (
     normalize_uri,
 )
 
-VERSION = "rationale_v3.evidence/2.0.0-r1"
+VERSION = "rationale_v3.evidence/2.1.0-b2ef"
 
 
 class EvidenceRuleError(RationaleV3ContractError):
@@ -549,6 +553,11 @@ _SUPPORTING_REASON = {
     RELATION_EXACT_EQUAL: NOT_COVERED_EXACT_EQUAL,
     RELATION_CANONICALLY_EQUIVALENT: NOT_COVERED_CANONICALLY_EQUIVALENT,
     RELATION_CANDIDATE_UNDER_CLAIM: NOT_COVERED_SEMANTIC_ENTAILMENT,
+    # Prompt 8H-B2-E: a predicate-scoped VALUE equivalence also supports the
+    # proposition — under `dbp:nationality` a candidate recorded as `Germany`
+    # answers the same question as an Answer recorded as `Germans`. It gets its
+    # own reason code because it is not a claim about entity identity.
+    RELATION_SCOPED_VALUE_EQUIVALENT: NOT_COVERED_SCOPED_VALUE_EQUIVALENT,
 }
 
 
@@ -590,8 +599,14 @@ def classify_fact_against_candidate(
                   "candidate; absence in one snapshot is an observation"))
 
     # --- 2) does any observed object SUPPORT the claim? ---------------------
+    # The predicate KEY is passed so a predicate-scoped relation domain can
+    # govern this pair. Callers before Prompt 8H-B2-E passed no key and got the
+    # global domains only; a v1 policy declares exactly one global domain, so
+    # the classification is unchanged wherever the v1 policy is in force.
+    predicate_key = (proposition.predicate_uri, proposition.direction)
     relations = tuple(
-        CandidateObjectRelation(uri, semantic_index.classify(claim, uri))
+        CandidateObjectRelation(
+            uri, semantic_index.classify(claim, uri, predicate_key))
         for uri in objects)
     unavailable = any(item.relation.relation == RELATION_UNAVAILABLE
                       for item in relations)
@@ -612,11 +627,18 @@ def classify_fact_against_candidate(
                 note=("the candidate supports this proposition, so the fact "
                       "discriminates nothing here"))
 
+    # Granularity precedence, strongest statement first. A CLAIM_UNDER_CANDIDATE
+    # finding is a positive observation and outranks every "we could not look"
+    # state; an unavailable index outranks an unmodelled domain because it means
+    # nothing at all was checked, not merely this domain.
     if any(item.relation.relation == RELATION_CLAIM_UNDER_CANDIDATE
            for item in relations):
         granularity = GRANULARITY_RISK_PRESENT
     elif not closure_ran:
         granularity = GRANULARITY_RISK_UNRESOLVED
+    elif any(item.relation.relation == RELATION_HIERARCHY_NOT_MODELLED
+             for item in relations):
+        granularity = GRANULARITY_RISK_HIERARCHY_UNMODELLED
     else:
         granularity = GRANULARITY_RISK_NONE
 
@@ -728,7 +750,13 @@ def build_l2_proof(
             if item.relation.relation in (RELATION_EXACT_EQUAL,
                                           RELATION_CANONICALLY_EQUIVALENT,
                                           RELATION_CANDIDATE_UNDER_CLAIM,
-                                          RELATION_CLAIM_UNDER_CANDIDATE):
+                                          RELATION_CLAIM_UNDER_CANDIDATE,
+                                          RELATION_SCOPED_VALUE_EQUIVALENT,
+                                          RELATION_HIERARCHY_NOT_MODELLED):
+                # The last two are Prompt 8H-B2-E additions and BOTH block a
+                # proof: a scoped value equivalence means the objects agree, and
+                # an unmodelled hierarchy means "no parent-child support
+                # relation" was never actually established.
                 return None
         premises.append(f"the candidate {candidate_uri} is observed with "
                         f"{sorted(candidate_objects)} for the same key")

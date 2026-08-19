@@ -400,19 +400,55 @@ def test_an_unadaptable_category_uri_is_stamped_not_evaluated(policy):
     assert invalid.leak_level is v6.LeakLevel.NONE
 
 
-def test_rationale_r1_source_file_is_untouched():
-    """The frozen rationale rule must not have been edited by this repair.
+def test_rationale_r1_leakage_rule_is_untouched():
+    """The frozen rationale LEAKAGE rule must not have been edited.
 
     Pinned by digest rather than by inspection: the whole scientific argument
     for adding a SECOND rule instead of widening R1 is that R1's behaviour is
     unchanged, and a digest is the only form of that claim which cannot rot.
+
+    THE DIGEST IS NOW OVER THE RULE, NOT OVER THE WHOLE FILE.
+      Prompt 8H-B2-E §12 added a direction-aware pedagogical tier table to
+      `rationale_v3.quality`, which changed the file digest
+      (4622755938056004ff5631cb5eb1c667bac4366a2da5948e8f85065c8c74cd21 ->
+      cf276fbc8419bd1c09f4d3a3f43c42f05a905c80cad5bbe7722fedbeb370ff9b) while
+      touching no line of the leakage rule. A whole-file digest could no longer
+      distinguish "somebody edited the leakage rule" from "somebody added a tier
+      table", so the pin moved to the six functions that ARE the rule. That is a
+      sharper claim than the one it replaces, not a weaker one: the file digest
+      would also have passed if the tier edit had quietly changed
+      `_plural_stem`, and this one would not.
     """
     import hashlib
+    import inspect
 
-    digest = hashlib.sha256(
-        (SRC_DIR / "rationale_v3" / "quality.py").read_bytes()).hexdigest()
+    from rationale_v3 import quality
+
+    names = ("leakage_tokens", "_plural_stem", "_shared_prefix_length",
+             "detect_answer_leakage", "local_name", "display_label")
+    blob = "\n".join(inspect.getsource(getattr(quality, name))
+                     for name in names)
+    digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()
     assert digest == (
-        "4622755938056004ff5631cb5eb1c667bac4366a2da5948e8f85065c8c74cd21")
+        "5d21c457daffb8aacaa64ce1767b3db7f08a48804142aef1cffb51bb978fc7c5")
+
+
+def test_the_r1_leakage_verdicts_are_behaviourally_frozen(policy):
+    """A behavioural companion to the digest above, on the audit's own pairs."""
+    from rationale_v3.quality import detect_answer_leakage
+
+    expected = [
+        ("Carbon", "Carbonado", True, False),        # AUDIT: hard
+        ("Carbon", "Boron_carbide", False, True),    # AUDIT: soft, never hard
+        ("Aristotle", "Aristotelian_philosophers", False, True),
+        ("Silicon", "Black_silicon", True, False),
+        ("Mao_Zedong", "Maoist_China", False, False),
+    ]
+    for answer, other, hard, soft in expected:
+        result = detect_answer_leakage(RESOURCE + answer, RESOURCE + other,
+                                       policy)
+        assert result.hard_leak is hard, (answer, other)
+        assert result.soft_leak is soft, (answer, other)
 
 
 def test_the_class_rule_never_changes_a_rationale_verdict(policy):

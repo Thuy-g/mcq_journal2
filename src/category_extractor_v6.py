@@ -1880,6 +1880,7 @@ def extract_answer_features(
     max_remote_candidates: int = DEFAULT_MAX_REMOTE_CANDIDATES,
     category_limit: int = DEFAULT_CATEGORY_LIMIT,
     count_batch_size: int = DEFAULT_COUNT_BATCH_SIZE,
+    derivational: DerivationalPolicy = DEFAULT_DERIVATIONAL_POLICY,
 ) -> AnswerFeatures:
     """Discover, gate and score one Answer's candidate-source classes.
 
@@ -1985,8 +1986,12 @@ def extract_answer_features(
                 rejected_code=RejectCode.INVALID_URI.value,
                 rejected_reason="value does not denote a usable DBpedia category URI"))
             continue
+        # `derivational` names the VERSIONED class-only leakage policy. It
+        # defaults to the v1 policy, so every caller that does not pass one —
+        # including the Prompt 8H-B2-D runner whose 329-Answer report is
+        # published evidence — keeps exactly the v1 verdicts.
         verdict = classify_class_leakage_extended(
-            answer_uri, canonical, policy=policy)
+            answer_uri, canonical, policy=policy, derivational=derivational)
         candidate = _with_leakage(
             ClassFeature(category_uri=canonical,
                          category_label=category_display_label(canonical)),

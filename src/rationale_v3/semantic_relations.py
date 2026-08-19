@@ -54,13 +54,15 @@ from rationale_v3.contracts import (
     RELATION_CANONICALLY_EQUIVALENT,
     RELATION_CLAIM_UNDER_CANDIDATE,
     RELATION_EXACT_EQUAL,
+    RELATION_HIERARCHY_NOT_MODELLED,
     RELATION_PROVEN_DISJOINT,
+    RELATION_SCOPED_VALUE_EQUIVALENT,
     RELATION_UNAVAILABLE,
     RELATION_UNRELATED_OR_UNKNOWN,
     RationaleV3ContractError,
 )
 
-VERSION = "rationale_v3.semantic_relations/1.0.0"
+VERSION = "rationale_v3.semantic_relations/2.0.0"
 
 DEFAULT_MAX_DEPTH = 4
 
@@ -68,7 +70,37 @@ DEFAULT_MAX_DEPTH = 4
 #: administrative containment. A second kind may be added later by policy, but it
 #: must then get its own name so a reader can tell which walk produced a relation.
 RELATION_KIND_PLACE_CONTAINMENT = "ADMINISTRATIVE_PLACE_CONTAINMENT"
-RELATION_KINDS = (RELATION_KIND_PLACE_CONTAINMENT,)
+
+#: Prompt 8H-B2-E, §5. A subdiscipline/discipline walk over `dbp:activitySector`
+#: — the "activity_sector" slot of the Occupation infobox, which is the ONLY
+#: predicate in the pinned March-2023 snapshot that actually relates one field
+#: of study or practice to a broader one (`Oncology -> Medicine`,
+#: `Pathology -> Surgery`, `Psychiatry -> Medicine`). It is admitted ONLY for
+#: the field predicate keys, because on other templates "activity sector" names
+#: an industry rather than a parent discipline.
+RELATION_KIND_FIELD_HIERARCHY = "PROFESSIONAL_FIELD_HIERARCHY"
+
+#: Prompt 8H-B2-E, §6. NOT a hierarchy and NOT an entity identity: two objects
+#: that denote the same value OF ONE PREDICATE SLOT. `dbp:demonym` relates a
+#: polity to the name of its people, and under `dbp:nationality` the two are the
+#: same answer to the same question. Under `dbp:birthPlace` they are not, which
+#: is exactly why the relation is predicate-scoped and never global.
+RELATION_KIND_NATIONALITY_VALUE = "NATIONALITY_VALUE_EQUIVALENCE"
+
+RELATION_KINDS = (RELATION_KIND_PLACE_CONTAINMENT,
+                  RELATION_KIND_FIELD_HIERARCHY,
+                  RELATION_KIND_NATIONALITY_VALUE)
+
+#: What a domain does with an object that takes part in NO edge of its own kind.
+COVERAGE_REPORTING_ENABLED = "REPORT_UNMODELLED_OBJECTS"
+COVERAGE_REPORTING_DISABLED = "DO_NOT_REPORT_UNMODELLED_OBJECTS"
+COVERAGE_REPORTING_MODES = (COVERAGE_REPORTING_ENABLED,
+                            COVERAGE_REPORTING_DISABLED)
+
+#: A domain that governs every predicate key, i.e. the v1 behaviour.
+DOMAIN_SCOPE_GLOBAL = "GLOBAL_ALL_PREDICATE_KEYS"
+DOMAIN_SCOPE_PREDICATE_KEYS = "DECLARED_PREDICATE_KEYS"
+DOMAIN_SCOPES = (DOMAIN_SCOPE_GLOBAL, DOMAIN_SCOPE_PREDICATE_KEYS)
 
 
 class SemanticPolicyError(RationaleV3ContractError):
@@ -130,6 +162,92 @@ class TraversalRule:
 
 
 @dataclass(frozen=True)
+class RelationDomain:
+    """One PREDICATE-SCOPED relation domain (Prompt 8H-B2-E, §5.2).
+
+    A domain answers three questions that the v1 policy could not express:
+
+    * **which predicate keys does this relation govern?** ``scope`` is either
+      ``DOMAIN_SCOPE_GLOBAL`` — the v1 behaviour, every key — or
+      ``DOMAIN_SCOPE_PREDICATE_KEYS``, in which case ``predicate_keys`` lists
+      the exact ``(predicate_uri, direction)`` pairs. Scoping matters because
+      DBpedia infobox predicates are polysemous ACROSS TEMPLATES: the same
+      ``dbp:activitySector`` edge that means "sub-discipline of" on an
+      Occupation page means "industry" elsewhere.
+    * **which traversal rules belong to it?** ``rule_ids``. A rule may belong
+      to exactly one domain, so a walked edge always names one relation kind.
+    * **what happens when an object takes part in no edge of this kind?** With
+      ``coverage_reporting = COVERAGE_REPORTING_ENABLED`` the pair is reported
+      as ``HIERARCHY_NOT_MODELLED_FOR_THESE_OBJECTS`` instead of
+      ``UNRELATED_OR_UNKNOWN``, which is the whole Otto Hahn repair: the pinned
+      snapshot records nothing at all for ``Radiochemistry``, so "no path" was
+      never evidence of "no relation".
+
+    ``symmetric_equivalence`` marks a domain whose edges denote SAME-VALUE
+    rather than parent/child (see ``RELATION_KIND_NATIONALITY_VALUE``). A path
+    in either direction then yields ``PREDICATE_SCOPED_VALUE_EQUIVALENT``, which
+    makes the fact NOT_COVERED — the direction-free reading a value slot needs,
+    and never an assertion that the two URIs denote the same entity.
+    """
+
+    domain_id: str
+    relation_kind: str
+    scope: str
+    predicate_keys: tuple[tuple[str, str], ...]
+    rule_ids: tuple[str, ...]
+    coverage_reporting: str
+    symmetric_equivalence: bool
+    description: str = ""
+
+    def governs(self, predicate_key: Optional[tuple[str, str]]) -> bool:
+        """Whether this domain governs a ``(predicate_uri, direction)`` key.
+
+        A caller that supplies no key at all gets the GLOBAL domains only: that
+        is what keeps every v1 call site — and every v1 policy file — behaving
+        exactly as before.
+        """
+        if self.scope == DOMAIN_SCOPE_GLOBAL:
+            return True
+        if predicate_key is None:
+            return False
+        return tuple(predicate_key) in self.predicate_keys
+
+    @property
+    def reports_coverage(self) -> bool:
+        return self.coverage_reporting == COVERAGE_REPORTING_ENABLED
+
+    def as_record(self) -> dict:
+        return {
+            "domain_id": self.domain_id,
+            "relation_kind": self.relation_kind,
+            "scope": self.scope,
+            "predicate_keys": [list(k) for k in self.predicate_keys],
+            "rule_ids": list(self.rule_ids),
+            "coverage_reporting": self.coverage_reporting,
+            "symmetric_equivalence": self.symmetric_equivalence,
+            "description": self.description,
+        }
+
+
+#: The implicit domain a v1 policy file describes: every rule, every key, no
+#: coverage reporting, parent/child semantics. Constructed per policy because it
+#: has to name that policy's own rule ids.
+def _implicit_global_domain(rules: Sequence[TraversalRule]) -> RelationDomain:
+    return RelationDomain(
+        domain_id="IMPLICIT_GLOBAL_V1",
+        relation_kind=RELATION_KIND_PLACE_CONTAINMENT,
+        scope=DOMAIN_SCOPE_GLOBAL,
+        predicate_keys=(),
+        rule_ids=tuple(rule.rule_id for rule in rules),
+        coverage_reporting=COVERAGE_REPORTING_DISABLED,
+        symmetric_equivalence=False,
+        description=("the domain a policy file with no explicit "
+                     "relation_domains block describes: every traversal rule, "
+                     "every predicate key, v1 semantics"),
+    )
+
+
+@dataclass(frozen=True)
 class SemanticRelationPolicy:
     """The versioned §5 policy: what may be walked, how far, and what may not."""
 
@@ -143,6 +261,9 @@ class SemanticRelationPolicy:
     disjoint_pairs: tuple[tuple[str, str], ...]
     policy_sha256: str
     notes: Mapping[str, str] = field(default_factory=dict)
+    #: Empty for a v1 policy file, in which case an implicit global domain is
+    #: synthesised and the classification is byte-for-byte the v1 one.
+    relation_domains: tuple[RelationDomain, ...] = ()
 
     @property
     def allowlisted_predicates(self) -> tuple[str, ...]:
@@ -160,12 +281,26 @@ class SemanticRelationPolicy:
             return rule
         return None
 
+    @property
+    def effective_domains(self) -> tuple[RelationDomain, ...]:
+        """The declared domains, or the synthesised v1 global one."""
+        if self.relation_domains:
+            return self.relation_domains
+        return (_implicit_global_domain(self.traversal_rules),)
+
+    def domains_for(self, predicate_key: Optional[tuple[str, str]]
+                    ) -> tuple[RelationDomain, ...]:
+        """Every domain governing a predicate key, in declaration order."""
+        return tuple(d for d in self.effective_domains if d.governs(predicate_key))
+
     def as_record(self) -> dict:
         return {
             "version": self.version,
             "policy_sha256": self.policy_sha256,
             "max_depth": self.max_depth,
             "traversal_rules": [rule.as_record() for rule in self.traversal_rules],
+            "relation_domains": [d.as_record() for d in self.effective_domains],
+            "relation_domains_declared": bool(self.relation_domains),
             "allowlisted_predicates": list(self.allowlisted_predicates),
             "excluded_predicates": dict(sorted(self.excluded_predicates.items())),
             "equivalence_source": self.equivalence_source,
@@ -227,10 +362,82 @@ def load_semantic_relation_policy(path: str | Path) -> SemanticRelationPolicy:
         (normalize_uri(str(pair[0])), normalize_uri(str(pair[1])))
         for pair in payload.get("disjoint_pairs", ()))
 
+    # --- Prompt 8H-B2-E: the optional relation_domains block ---------------
+    #
+    # Absent for a v1 policy file, and its absence is preserved rather than
+    # defaulted: `effective_domains` synthesises the implicit global domain, so
+    # an old policy file and an old cache keep exactly their old meaning. That
+    # is the §5.6 requirement "do not silently reinterpret old semantic-index
+    # caches" — an old cache carries an old `policy_sha256` and is refused for a
+    # new policy anyway, and an old policy read by this loader still classifies
+    # the v1 way.
+    known_rule_ids = {rule.rule_id for rule in rules}
+    domains: list[RelationDomain] = []
+    claimed_rules: dict[str, str] = {}
+    for entry in payload.get("relation_domains", ()):
+        scope = str(entry.get("scope", DOMAIN_SCOPE_GLOBAL))
+        if scope not in DOMAIN_SCOPES:
+            raise SemanticPolicyError(
+                f"{path.name}: relation domain {entry.get('domain_id')!r} "
+                f"declares unknown scope {scope!r}")
+        coverage = str(entry.get("coverage_reporting", COVERAGE_REPORTING_DISABLED))
+        if coverage not in COVERAGE_REPORTING_MODES:
+            raise SemanticPolicyError(
+                f"{path.name}: relation domain {entry.get('domain_id')!r} "
+                f"declares unknown coverage_reporting {coverage!r}")
+        kind = str(entry.get("relation_kind", ""))
+        if kind not in RELATION_KINDS:
+            raise SemanticPolicyError(
+                f"{path.name}: relation domain {entry.get('domain_id')!r} "
+                f"declares unknown relation_kind {kind!r}")
+        rule_ids = tuple(str(r) for r in entry.get("rule_ids", ()))
+        for rule_id in rule_ids:
+            if rule_id not in known_rule_ids:
+                raise SemanticPolicyError(
+                    f"{path.name}: relation domain {entry.get('domain_id')!r} "
+                    f"names traversal rule {rule_id!r}, which is not declared")
+            if rule_id in claimed_rules:
+                raise SemanticPolicyError(
+                    f"{path.name}: traversal rule {rule_id!r} is claimed by two "
+                    f"domains ({claimed_rules[rule_id]} and "
+                    f"{entry.get('domain_id')}); a walked edge must name exactly "
+                    f"one relation kind")
+            claimed_rules[rule_id] = str(entry.get("domain_id"))
+        keys = tuple(sorted(
+            (normalize_uri(str(k["predicate_uri"])), str(k["direction"]))
+            for k in entry.get("predicate_keys", ())))
+        for _, direction in keys:
+            if direction not in ("OUT", "IN"):
+                raise SemanticPolicyError(
+                    f"{path.name}: relation domain {entry.get('domain_id')!r} "
+                    f"declares predicate-key direction {direction!r}")
+        if scope == DOMAIN_SCOPE_PREDICATE_KEYS and not keys:
+            raise SemanticPolicyError(
+                f"{path.name}: relation domain {entry.get('domain_id')!r} is "
+                f"scoped to declared predicate keys but declares none")
+        domains.append(RelationDomain(
+            domain_id=str(entry["domain_id"]),
+            relation_kind=kind,
+            scope=scope,
+            predicate_keys=keys,
+            rule_ids=rule_ids,
+            coverage_reporting=coverage,
+            symmetric_equivalence=bool(entry.get("symmetric_equivalence", False)),
+            description=str(entry.get("description", "")),
+        ))
+    if domains:
+        unclaimed = sorted(known_rule_ids - set(claimed_rules))
+        if unclaimed:
+            raise SemanticPolicyError(
+                f"{path.name}: traversal rule(s) {unclaimed} belong to no "
+                f"relation domain; every rule must declare which relation it "
+                f"walks or a reader cannot tell what a path means")
+
     return SemanticRelationPolicy(
         version=str(payload.get("version", "unversioned")),
         max_depth=max_depth,
         traversal_rules=tuple(sorted(rules, key=lambda r: r.rule_id)),
+        relation_domains=tuple(domains),
         excluded_predicates={normalize_uri(str(k)): str(v) for k, v
                              in payload.get("excluded_predicates", {}).items()},
         equivalence_source=str(payload.get("equivalence_source", "")),
@@ -317,6 +524,13 @@ class SemanticRelationResult:
     path_edges: tuple[AncestorEdge, ...]
     available: bool
     note: str = ""
+    #: Prompt 8H-B2-E provenance: which predicate key was asked about, which
+    #: domains governed it, and which of them (if any) had no edge for either
+    #: object. All three are empty for a v1 call, which passes no key.
+    predicate_key: Optional[tuple[str, str]] = None
+    domain_ids: tuple[str, ...] = ()
+    unmodelled_domain_ids: tuple[str, ...] = ()
+    policy_version: str = ""
 
     def as_record(self) -> dict:
         return {
@@ -328,6 +542,11 @@ class SemanticRelationResult:
             "path_edges": [edge.as_record() for edge in self.path_edges],
             "semantic_relation_available": self.available,
             "note": self.note,
+            "predicate_key": (None if self.predicate_key is None
+                              else list(self.predicate_key)),
+            "relation_domain_ids": list(self.domain_ids),
+            "unmodelled_relation_domain_ids": list(self.unmodelled_domain_ids),
+            "semantic_relation_policy_version": self.policy_version,
         }
 
 
@@ -362,7 +581,42 @@ class SemanticIndex:
         return self.equivalence.get(normalized, normalized)
 
     # --- bounded, cycle-safe ancestor walk ---------------------------------
-    def ancestors(self, uri: str) -> dict[str, tuple[int, tuple[AncestorEdge, ...]]]:
+    # --- Prompt 8H-B2-E: which rules a walk may use --------------------------
+    def _rules_for(self, domains: Sequence["RelationDomain"]) -> Optional[frozenset]:
+        """The rule ids a walk restricted to ``domains`` may follow.
+
+        ``None`` means "no restriction", which is what a v1 policy (one implicit
+        global domain covering every rule) produces, so the hot path stays the
+        v1 hot path.
+        """
+        if not self.policy.relation_domains:
+            return None
+        allowed: set[str] = set()
+        for domain in domains:
+            allowed.update(domain.rule_ids)
+        return frozenset(allowed)
+
+    def participates(self, uri: str, rule_ids: Optional[frozenset]) -> bool:
+        """Does this object take part in ANY indexed edge of these rules?
+
+        The coverage question §5 needs. An object that is neither the child nor
+        the parent of a single admitted edge was never examined by the closure,
+        so "no path from it" says nothing. Checked over the built index, not
+        over the policy, because the policy says what MAY be walked and the
+        index says what the pinned snapshot actually recorded.
+        """
+        target = self.canonical(uri)
+        for edge in self.parents.get(target, ()):
+            if rule_ids is None or edge.rule_id in rule_ids:
+                return True
+        return any(
+            edge.parent_uri == target
+            and (rule_ids is None or edge.rule_id in rule_ids)
+            for edges in self.parents.values() for edge in edges)
+
+    def ancestors(self, uri: str,
+                  rule_ids: Optional[frozenset] = None
+                  ) -> dict[str, tuple[int, tuple[AncestorEdge, ...]]]:
         """{ancestor: (depth, path)} within `policy.max_depth`, cycle-safe.
 
         Breadth-first, so the FIRST time an ancestor is reached is at its minimum
@@ -379,6 +633,8 @@ class SemanticIndex:
             if depth >= self.policy.max_depth:
                 continue
             for edge in self.parents.get(node, ()):  # already canonical
+                if rule_ids is not None and edge.rule_id not in rule_ids:
+                    continue
                 parent = edge.parent_uri
                 if parent in visited:
                     continue
@@ -388,78 +644,136 @@ class SemanticIndex:
                 queue.append((parent, depth + 1, extended))
         return seen
 
-    def is_descendant_of(self, child_uri: str, ancestor_uri: str
+    def is_descendant_of(self, child_uri: str, ancestor_uri: str,
+                         rule_ids: Optional[frozenset] = None
                          ) -> tuple[bool, int, tuple[AncestorEdge, ...]]:
         target = self.canonical(ancestor_uri)
-        found = self.ancestors(child_uri).get(target)
+        found = self.ancestors(child_uri, rule_ids).get(target)
         if found is None:
             return (False, 0, ())
         return (True, found[0], found[1])
 
     # --- the classification -------------------------------------------------
-    def classify(self, claim_object_uri: str, candidate_object_uri: str
+    def classify(self, claim_object_uri: str, candidate_object_uri: str,
+                 predicate_key: Optional[tuple[str, str]] = None
                  ) -> SemanticRelationResult:
-        """Exactly one of the seven §5 relations, with its evidence.
+        """Exactly one relation, with its evidence and its domain provenance.
 
-        Order matters and is the order of §5: identity first, then equivalence,
-        then the two directed containment relations, then proven disjointness,
-        then the two ways of not knowing. EXACT_EQUAL is checked on the
-        NORMALIZED URI and CANONICALLY_EQUIVALENT on the representative, so the
-        two are never reported as the same finding.
+        Order matters and is the order of §5: identity first, then global
+        equivalence, then the predicate-scoped value equivalence added by
+        Prompt 8H-B2-E, then the two directed containment relations, then proven
+        disjointness, then the two ways of not knowing. EXACT_EQUAL is checked
+        on the NORMALIZED URI and CANONICALLY_EQUIVALENT on the representative,
+        so the two are never reported as the same finding.
+
+        ``predicate_key`` is ``(predicate_uri, direction)``. Omitting it — which
+        every pre-8H-B2-E caller does — selects the GLOBAL domains only, and a
+        policy file with no ``relation_domains`` block has exactly one global
+        domain covering every rule. The v1 result is therefore reproduced
+        exactly, field for field, whenever the v1 policy is in force.
+
+        The two new outcomes:
+
+        * ``PREDICATE_SCOPED_VALUE_EQUIVALENT`` — a symmetric-equivalence domain
+          governs this key and connects the two objects in either direction. The
+          candidate SUPPORTS the proposition, so the fact discriminates nothing;
+          it is deliberately a separate reason code from entity equivalence,
+          because a country and its demonym are not the same entity.
+        * ``HIERARCHY_NOT_MODELLED_FOR_THESE_OBJECTS`` — a coverage-reporting
+          domain governs this key and at least one object takes part in no edge
+          of that domain. Reported instead of ``UNRELATED_OR_UNKNOWN``, because
+          the closure had nothing to traverse and its silence is not a finding.
+          It NEVER changes an evidence level; `evidence.py` maps it to a
+          reported granularity risk, which only blocks main-corpus safety.
         """
         claim_n = normalize_uri(claim_object_uri)
         cand_n = normalize_uri(candidate_object_uri)
-        if claim_n == cand_n:
+        key = None if predicate_key is None else (
+            normalize_uri(str(predicate_key[0])), str(predicate_key[1]))
+        domains = self.policy.domains_for(key)
+        domain_ids = tuple(d.domain_id for d in domains)
+
+        def result(relation: str, *, depth: int = 0,
+                   path: tuple[AncestorEdge, ...] = (), available: bool = True,
+                   note: str = "", unmodelled: tuple[str, ...] = ()
+                   ) -> SemanticRelationResult:
             return SemanticRelationResult(
-                relation=RELATION_EXACT_EQUAL, claim_object_uri=claim_n,
-                candidate_object_uri=cand_n, depth=0, path_rule_ids=(),
-                path_edges=(), available=True)
+                relation=relation, claim_object_uri=claim_n,
+                candidate_object_uri=cand_n, depth=depth,
+                path_rule_ids=tuple(e.rule_id for e in path), path_edges=path,
+                available=available, note=note, predicate_key=key,
+                domain_ids=domain_ids, unmodelled_domain_ids=unmodelled,
+                policy_version=self.policy.version)
+
+        if claim_n == cand_n:
+            return result(RELATION_EXACT_EQUAL)
 
         claim_c = self.canonical(claim_n)
         cand_c = self.canonical(cand_n)
         if claim_c == cand_c:
-            return SemanticRelationResult(
-                relation=RELATION_CANONICALLY_EQUIVALENT,
-                claim_object_uri=claim_n, candidate_object_uri=cand_n, depth=0,
-                path_rule_ids=(), path_edges=(), available=True,
+            return result(
+                RELATION_CANONICALLY_EQUIVALENT,
                 note=f"local equivalence source: {self.policy.equivalence_source}")
 
         if not self.available:
-            return SemanticRelationResult(
-                relation=RELATION_UNAVAILABLE, claim_object_uri=claim_n,
-                candidate_object_uri=cand_n, depth=0, path_rule_ids=(),
-                path_edges=(), available=False,
-                note=self.unavailable_reason)
+            return result(RELATION_UNAVAILABLE, available=False,
+                          note=self.unavailable_reason)
 
-        under, depth, path = self.is_descendant_of(cand_c, claim_c)
-        if under:
-            return SemanticRelationResult(
-                relation=RELATION_CANDIDATE_UNDER_CLAIM,
-                claim_object_uri=claim_n, candidate_object_uri=cand_n,
-                depth=depth, path_rule_ids=tuple(e.rule_id for e in path),
-                path_edges=path, available=True)
+        # --- symmetric, predicate-scoped VALUE equivalence -------------------
+        equivalence_domains = [d for d in domains if d.symmetric_equivalence]
+        if equivalence_domains:
+            rules = self._rules_for(equivalence_domains)
+            for a, b in ((cand_c, claim_c), (claim_c, cand_c)):
+                linked, depth, path = self.is_descendant_of(a, b, rules)
+                if linked:
+                    return result(
+                        RELATION_SCOPED_VALUE_EQUIVALENT, depth=depth, path=path,
+                        note=("the two objects denote the same value of this "
+                              "predicate slot under a declared, "
+                              "predicate-scoped equivalence rule; this is NOT a "
+                              "claim that they are the same entity"))
 
-        over, depth, path = self.is_descendant_of(claim_c, cand_c)
-        if over:
-            return SemanticRelationResult(
-                relation=RELATION_CLAIM_UNDER_CANDIDATE,
-                claim_object_uri=claim_n, candidate_object_uri=cand_n,
-                depth=depth, path_rule_ids=tuple(e.rule_id for e in path),
-                path_edges=path, available=True)
+        # --- directed containment over the governing hierarchy domains -------
+        hierarchy_domains = [d for d in domains if not d.symmetric_equivalence]
+        rules = self._rules_for(hierarchy_domains)
+        if hierarchy_domains or rules is None:
+            under, depth, path = self.is_descendant_of(cand_c, claim_c, rules)
+            if under:
+                return result(RELATION_CANDIDATE_UNDER_CLAIM, depth=depth,
+                              path=path)
+
+            over, depth, path = self.is_descendant_of(claim_c, cand_c, rules)
+            if over:
+                return result(RELATION_CLAIM_UNDER_CANDIDATE, depth=depth,
+                              path=path)
 
         pair = tuple(sorted((claim_c, cand_c)))
         if pair in self.disjoint:
-            return SemanticRelationResult(
-                relation=RELATION_PROVEN_DISJOINT, claim_object_uri=claim_n,
-                candidate_object_uri=cand_n, depth=0, path_rule_ids=(),
-                path_edges=(), available=True,
+            return result(
+                RELATION_PROVEN_DISJOINT,
                 note=f"disjointness source: {self.policy.disjointness_source}")
 
-        return SemanticRelationResult(
-            relation=RELATION_UNRELATED_OR_UNKNOWN, claim_object_uri=claim_n,
-            candidate_object_uri=cand_n, depth=0, path_rule_ids=(),
-            path_edges=(), available=True,
-            note=("no allowlisted containment path within depth "
+        # --- coverage: was there anything to traverse at all? ----------------
+        unmodelled = []
+        for domain in domains:
+            if not domain.reports_coverage:
+                continue
+            domain_rules = self._rules_for([domain])
+            if not (self.participates(claim_c, domain_rules)
+                    and self.participates(cand_c, domain_rules)):
+                unmodelled.append(domain.domain_id)
+        if unmodelled:
+            return result(
+                RELATION_HIERARCHY_NOT_MODELLED, unmodelled=tuple(unmodelled),
+                note=("the pinned snapshot records no edge of "
+                      f"{', '.join(unmodelled)} for at least one of these two "
+                      "objects, so the closure had nothing to traverse; this is "
+                      "a coverage statement about the snapshot and is not "
+                      "evidence that the objects are unrelated"))
+
+        return result(
+            RELATION_UNRELATED_OR_UNKNOWN,
+            note=("no allowlisted path within depth "
                   f"{self.policy.max_depth}; this is a statement about the "
                   "traversed edges, not about the world"))
 
@@ -474,6 +788,12 @@ class SemanticIndex:
             "disjoint_pair_count": len(self.disjoint),
             "cache_key": (None if self.cache_key is None
                           else self.cache_key.as_record()),
+            "edges_by_relation_kind": {
+                kind: sum(1 for edges in self.parents.values()
+                          for edge in edges if edge.relation_kind == kind)
+                for kind in sorted({edge.relation_kind
+                                    for edges in self.parents.values()
+                                    for edge in edges})},
             "policy": self.policy.as_record(),
         }
 

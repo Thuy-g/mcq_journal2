@@ -218,6 +218,7 @@ from typing import Iterable, Mapping, Sequence
 
 from mcq_core import (
     DEFAULT_POOL_POLICY,
+    DEFAULT_RATIONALE_OBJECTIVE,
     AnswerCase,
     AnswerFact,
     Candidate,
@@ -1361,6 +1362,7 @@ def build_and_select(
     provenance: Mapping,
     pool_policy: PoolPolicy = DEFAULT_POOL_POLICY,
     force_pool: bool = False,
+    objective: str = DEFAULT_RATIONALE_OBJECTIVE,
 ) -> tuple[AnswerCase, Selection | None, dict]:
     """Validate the supplied roster/provenance, reconstruct the Answer's facts,
     classify evidence, build the canonical ``AnswerCase``, and call the frozen
@@ -1407,7 +1409,11 @@ def build_and_select(
         quality, roster, local_kg=local_kg, semantic_index=semantic_index,
         rulebook=rulebook, scope=scope)
     case = build_case(answer_uri, display_label, roster, facts)
-    selection = select_distractors(case, pool_policy, force_pool)
+    # `objective` names the VERSIONED rationale ordering (mcq_core
+    # RATIONALE_OBJECTIVE_V1 / _V2). It defaults to V1, so every existing caller
+    # — including the Prompt 8H-B2-D runner whose 329-Answer report is published
+    # evidence — keeps the historical fourteen-field key.
+    selection = select_distractors(case, pool_policy, force_pool, objective)
     return (case, selection, audit_record(
         case, selection, provenance, local_kg=local_kg,
         quality_policy=quality_policy, semantic_index=semantic_index,

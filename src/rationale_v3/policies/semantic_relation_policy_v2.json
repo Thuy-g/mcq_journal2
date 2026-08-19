@@ -1,0 +1,214 @@
+{
+  "version": "semantic_relation_policy/2.0.0",
+  "supersedes": "semantic_relation_policy/1.0.0",
+  "max_depth": 4,
+  "notes": {
+    "scope": "Bounded, allowlisted, cycle-safe parent-child closure over the pinned local KG. Not a reasoner. Never inferred from URI strings.",
+    "direction_of_effect": "Parent-child relatedness removes or downgrades apparent contrast. It never creates exclusion evidence.",
+    "why_the_allowlist_is_short": "DBpedia infobox predicates are polysemous across templates. Only administrative-containment slots are admitted, because those carry the same meaning on every template that uses them. Every rejected predicate is listed under excluded_predicates with its reason.",
+    "max_depth_rationale": "Four hops reach ward -> city -> prefecture/state -> country, which is the deepest administrative chain the pilot's place objects need. A deeper walk would start joining unrelated administrative trees through shared national parents.",
+    "coverage_claim": "This closure is incomplete by construction. An UNRELATED_OR_UNKNOWN result is a statement about the traversed edges, not about the world.",
+    "what_changed_in_v2": "Three additions, no deletions. (1) Traversal rules are grouped into named, VERSIONED relation domains, and a domain declares which rationale predicate keys it governs. (2) A domain may REPORT the objects it has no edge for, so 'the closure found no path' stops being indistinguishable from 'the closure had nothing to traverse'. (3) Two new relation kinds are declared: a professional-field hierarchy over dbp:activitySector, and a predicate-scoped nationality VALUE equivalence over dbp:demonym. Every v1 place-containment rule keeps its id, its predicate, its direction and its GLOBAL scope, so every classification the v1 policy produced is reproduced.",
+    "why_scientific_field_hierarchy_is_almost_empty": "Measured on the pinned March-2023 snapshot (SHA-256 e230c5b9...bea1b): http://purl.org/linguistics/gold/hypernym is NOT a predicate of this graph at all, and dcterms:subject, rdf:type, skos:broader and dbo:wikiPageWikiLink are equally absent - the dump carries infobox properties only. The nodes Chemistry, Radiochemistry, Biochemistry, Nuclear_chemistry, Physics, Biology, Organic_chemistry and Physical_chemistry have ZERO outgoing edges of ANY predicate, so no hierarchy edge between them can exist in this snapshot under any policy. Over the 33 distinct objects observed under dbp:field / dbp:fields for the 329-Answer corpus there is not one field-to-field edge. Radiochemistry -> Chemistry and Biochemistry -> Chemistry are therefore NOT asserted here: asserting them would be fabricating an edge the pinned source does not contain, and the run reports HIERARCHY_NOT_MODELLED_FOR_THESE_OBJECTS instead, which is the true state of the evidence.",
+    "why_activity_sector_is_admitted": "dbp:activitySector is the 'activity_sector' slot of the Occupation infobox and is the only predicate in the pinned snapshot observed relating one field of study or practice to a broader one: Obstetrics -> Medicine, Oncology -> Medicine, Ophthalmology -> Surgery, Pathology -> Surgery, Pediatrics -> Medicine, Psychiatry -> Medicine. It is admitted ONLY under the dbp:field / dbp:fields keys. On other templates the same slot names an industry rather than a parent discipline, and the predicate-key scope is what keeps that reading out.",
+    "why_demonym_is_an_equivalence_and_not_a_hierarchy": "dbp:demonym relates a polity to the name of its people (Germany -> Germans, England -> English_people, United_Kingdom -> British_people). Under dbp:nationality and dbp:citizenship the two spellings answer the same question, so the domain is declared SYMMETRIC and yields PREDICATE_SCOPED_VALUE_EQUIVALENT rather than a parent-child relation. It is emphatically NOT an entity identity: under dbp:birthPlace 'Germany' and 'Germans' are not interchangeable, which is why the domain is scoped to two predicate keys and to no others.",
+    "why_wiki_links_are_not_used": "dbo:wikiPageWikiLink and dbo:wikiPageDisambiguates are not present in the pinned snapshot, and would not have been admitted if they were: a wiki link records that one article mentions another and proves neither identity nor subsumption. dbp:region is excluded for the measured reason that it relates French_people to Sweden, Italy, China, the United States and fourteen other countries - it lists where a people lives, not what contains it.",
+    "measured_nationality_normalization_coverage": "Over the 329-Answer corpus only 23 of 311 locally resolvable Answers (7.4%) carry dbp:nationality or dbp:citizenship at all. Of the 70 (Answer, candidate) pairs in which both sides carry the key, 45 hold different objects, and dbp:demonym repairs 0 of those 45: France, Japan and United_States - the three countries in every observed mismatch - carry no dbp:demonym edge in the pinned snapshot. The rule is declared anyway because it is defensible and its coverage reporting makes the gap visible; its measured repair rate on this corpus is zero and is reported as such."
+  },
+  "traversal_rules": [
+    {
+      "rule_id": "PLACE_CONTAINMENT_COUNTRY_V1",
+      "predicate_uri": "http://dbpedia.org/property/country",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:country Y - the sovereign state the settlement or administrative area X lies in."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_SUBDIVISION_NAME_V1",
+      "predicate_uri": "http://dbpedia.org/property/subdivisionName",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:subdivisionName Y - an administrative division containing X, as listed by the settlement infobox."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_STATE_V1",
+      "predicate_uri": "http://dbpedia.org/property/state",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:state Y - the state or prefecture containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_PROVINCE_V1",
+      "predicate_uri": "http://dbpedia.org/property/province",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:province Y - the province containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_COUNTY_V1",
+      "predicate_uri": "http://dbpedia.org/property/county",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:county Y - the county containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_CITY_V1",
+      "predicate_uri": "http://dbpedia.org/property/city",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:city Y - the city containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_MUNICIPALITY_V1",
+      "predicate_uri": "http://dbpedia.org/property/municipality",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:municipality Y - the municipality containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_DISTRICT_V1",
+      "predicate_uri": "http://dbpedia.org/property/district",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:district Y - the district containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_NATION_V1",
+      "predicate_uri": "http://dbpedia.org/property/nation",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:nation Y - the nation containing X."
+    },
+    {
+      "rule_id": "PLACE_CONTAINMENT_IS_PART_OF_V1",
+      "predicate_uri": "http://dbpedia.org/property/isPartOf",
+      "direction": "OUT",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "description": "X dbp:isPartOf Y - the administrative or geographic whole X belongs to."
+    },
+    {
+      "rule_id": "FIELD_ACTIVITY_SECTOR_V1",
+      "predicate_uri": "http://dbpedia.org/property/activitySector",
+      "direction": "OUT",
+      "relation_kind": "PROFESSIONAL_FIELD_HIERARCHY",
+      "description": "X dbp:activitySector Y - the broader field of study or practice that the specialty X belongs to, as declared by the Occupation infobox. Admitted only under the field predicate keys."
+    },
+    {
+      "rule_id": "NATIONALITY_DEMONYM_V1",
+      "predicate_uri": "http://dbpedia.org/property/demonym",
+      "direction": "OUT",
+      "relation_kind": "NATIONALITY_VALUE_EQUIVALENCE",
+      "description": "X dbp:demonym Y - the name of the people of the polity X. Traversed symmetrically and only under the nationality and citizenship keys."
+    }
+  ],
+  "relation_domains": [
+    {
+      "domain_id": "ADMINISTRATIVE_PLACE_CONTAINMENT_V1",
+      "relation_kind": "ADMINISTRATIVE_PLACE_CONTAINMENT",
+      "scope": "GLOBAL_ALL_PREDICATE_KEYS",
+      "rule_ids": [
+        "PLACE_CONTAINMENT_COUNTRY_V1",
+        "PLACE_CONTAINMENT_SUBDIVISION_NAME_V1",
+        "PLACE_CONTAINMENT_STATE_V1",
+        "PLACE_CONTAINMENT_PROVINCE_V1",
+        "PLACE_CONTAINMENT_COUNTY_V1",
+        "PLACE_CONTAINMENT_CITY_V1",
+        "PLACE_CONTAINMENT_MUNICIPALITY_V1",
+        "PLACE_CONTAINMENT_DISTRICT_V1",
+        "PLACE_CONTAINMENT_NATION_V1",
+        "PLACE_CONTAINMENT_IS_PART_OF_V1"
+      ],
+      "coverage_reporting": "DO_NOT_REPORT_UNMODELLED_OBJECTS",
+      "symmetric_equivalence": false,
+      "description": "The v1 domain, unchanged and still global, so every classification the v1 policy produced is reproduced exactly. Coverage reporting is OFF for it in v2: settlement infoboxes really do carry containment, so an object with no admitted parent is usually a genuinely top-level or non-place value, and switching the reporting on would re-label a large share of the corpus in a prompt whose measured subject is the FIELD taxonomy. The effect of enabling it is measured and reported in semantic_relation_delta_audit.csv rather than adopted here."
+    },
+    {
+      "domain_id": "PROFESSIONAL_FIELD_HIERARCHY_V1",
+      "relation_kind": "PROFESSIONAL_FIELD_HIERARCHY",
+      "scope": "DECLARED_PREDICATE_KEYS",
+      "predicate_keys": [
+        {
+          "predicate_uri": "http://dbpedia.org/property/field",
+          "direction": "OUT"
+        },
+        {
+          "predicate_uri": "http://dbpedia.org/property/fields",
+          "direction": "OUT"
+        },
+        {
+          "predicate_uri": "http://dbpedia.org/property/field",
+          "direction": "IN"
+        },
+        {
+          "predicate_uri": "http://dbpedia.org/property/fields",
+          "direction": "IN"
+        }
+      ],
+      "rule_ids": [
+        "FIELD_ACTIVITY_SECTOR_V1"
+      ],
+      "coverage_reporting": "REPORT_UNMODELLED_OBJECTS",
+      "symmetric_equivalence": false,
+      "description": "Sub-discipline under discipline, for the scientific-domain predicates only. Coverage reporting is ON because the pinned snapshot models almost nothing here: the Chemistry family has no outgoing edges at all, so a 'no path' result for Radiochemistry against Chemistry is a statement about the snapshot and must be reported as one."
+    },
+    {
+      "domain_id": "NATIONALITY_VALUE_EQUIVALENCE_V1",
+      "relation_kind": "NATIONALITY_VALUE_EQUIVALENCE",
+      "scope": "DECLARED_PREDICATE_KEYS",
+      "predicate_keys": [
+        {
+          "predicate_uri": "http://dbpedia.org/property/nationality",
+          "direction": "OUT"
+        },
+        {
+          "predicate_uri": "http://dbpedia.org/property/citizenship",
+          "direction": "OUT"
+        }
+      ],
+      "rule_ids": [
+        "NATIONALITY_DEMONYM_V1"
+      ],
+      "coverage_reporting": "REPORT_UNMODELLED_OBJECTS",
+      "symmetric_equivalence": true,
+      "description": "Country/demonym value equivalence for the nationality slot only. Symmetric, because a value slot has no direction. Coverage reporting is ON so that the France / French_people mismatch, which this rule cannot repair, is reported rather than published as a clean contrast."
+    }
+  ],
+  "excluded_predicates": {
+    "http://dbpedia.org/property/region": "Polysemous across templates: the containing region on a settlement page, and the philosophical tradition (for example Western philosophy) on a philosopher page. Traversing it would mix geographic containment with intellectual tradition under one relation name.",
+    "http://dbpedia.org/property/location": "Used both for containment and for a loosely associated place (venue, headquarters, event site). Not reliably a containment edge.",
+    "http://dbpedia.org/property/place": "Free-form place slot with no consistent containment semantics across templates.",
+    "http://dbpedia.org/property/type": "Used for taxonomic type, product type, settlement type and infobox variant. Not a single hierarchy.",
+    "http://dbpedia.org/property/class": "Used for ship class, taxonomic class, vehicle class and school class. Not a single hierarchy.",
+    "http://dbpedia.org/property/category": "Editorial grouping, not a subsumption relation.",
+    "http://dbpedia.org/property/parent": "Used for parent company, parent taxon and biological parent. Not a single hierarchy.",
+    "http://dbpedia.org/property/owner": "Ownership is not containment and not subsumption.",
+    "http://dbpedia.org/property/family": "Used for taxonomic family, product family and human family. Not a single hierarchy.",
+    "http://dbpedia.org/property/order": "Used for taxonomic order, chronological order and award order. Not a single hierarchy.",
+    "http://dbpedia.org/property/settlementType": "Names the KIND of settlement, not the settlement containing it."
+  },
+  "equivalence_source": "data/pilot_class_members_v1.jsonl record_type=redirect rows with a resolved target_uri, frozen during the Prompt-8B class-member retrieval. Read offline from the local file; no live lookup.",
+  "equivalence_pairs": [
+    [
+      "http://dbpedia.org/resource/Antisthenes_(Heraclitean)",
+      "http://dbpedia.org/resource/Heraclitus"
+    ],
+    [
+      "http://dbpedia.org/resource/Iodous_acid",
+      "http://dbpedia.org/resource/Iodite"
+    ],
+    [
+      "http://dbpedia.org/resource/K-selectride",
+      "http://dbpedia.org/resource/L-selectride"
+    ],
+    [
+      "http://dbpedia.org/resource/Nihon_Hidankyo",
+      "http://dbpedia.org/resource/Japan_Confederation_of_A-_and_H-Bomb_Sufferers_Organizations"
+    ],
+    [
+      "http://dbpedia.org/resource/Uranium(III)_hydride",
+      "http://dbpedia.org/resource/Uranium_hydride"
+    ]
+  ],
+  "disjointness_source": "No trustworthy disjointness axioms are available offline for DBpedia infobox properties. The list below is empty on purpose: a disjointness assertion invented here would become an L2 exclusion proof, which is exactly the fabrication this policy exists to prevent.",
+  "disjoint_pairs": []
+}

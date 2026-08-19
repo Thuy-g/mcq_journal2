@@ -187,6 +187,15 @@ LROLESIM_ROLE_NOTE = (
     "LRoleSim is applied as a frozen structural plausibility ranker only. No "
     "similarity is recomputed here and LRoleSim generates no rationale."
 )
+OPTION_REFERENCE_CONFLICT_NOTE = (
+    "option_reference_conflict is a PEDAGOGICAL signal, not an evidence "
+    "signal. It records that a selected rationale fact names one of the "
+    "selected distractor options, which is logically sound and pedagogically "
+    "awkward. It never changes an evidence level, never removes a rationale "
+    "from consideration, and under RATIONALE_OBJECTIVE_V2 it orders only "
+    "rationales that already tie on the complete evidence profile. It can "
+    "never buy a larger rationale: |R*| is fixed before key 4 is consulted.")
+
 LOCAL_ANONYMITY_NOTE = (
     "Computed over the Answer plus the COMPLETE ranked candidate pool of the "
     "selected class. This is local candidate-pool anonymity, not uniqueness in "
@@ -483,6 +492,99 @@ def local_pool_anonymity(
 # --------------------------------------------------------------------------
 # Rationale ranking — objective key 4
 # --------------------------------------------------------------------------
+#
+# TWO EXPLICITLY VERSIONED RATIONALE OBJECTIVES
+# ----------------------------------------------
+# ``RATIONALE_OBJECTIVE_V1`` is the historical fourteen-field key, unchanged and
+# still the DEFAULT: every result the project has published was produced by it,
+# and a silently widened key would make those results irreproducible.
+#
+# ``RATIONALE_OBJECTIVE_V2`` inserts exactly ONE new field, the
+# ``option_reference_conflict`` count required by Prompt 8H-B2-E §10, and moves
+# nothing else. Where it goes is the whole design question:
+#
+#   * it must sit AFTER the complete evidence profile (fields 1-6), because no
+#     pedagogical consideration may buy a weaker evidence level or hide a
+#     granularity risk;
+#   * it must sit BEFORE ``soft_leak_fact_count`` (field 7), because a clue that
+#     names one of the printed options is a stronger pedagogical defect than a
+#     faint lexical echo of the Answer label;
+#   * it must NOT enter the CANDIDATE-combination objective's key 3
+#     (``minimum_rationale_size``), so it can never buy a larger rationale.
+#     Augustus keeps |R*| = 1 under v2 and simply gets a different |R*| = 1
+#     rationale, which is the §10 requirement stated as an invariant.
+#
+# When every minimum-cardinality rationale references an option, all of them
+# score 1 on the new field, the field decides nothing, and the winner is
+# reported WITH the flag rather than replaced by a larger rationale.
+# A THIRD OBJECTIVE, AND WHY THE MEASUREMENT FORCED IT
+# -----------------------------------------------------
+# Augustus is the case §10 names, and V2 does not repair it. Measured on the
+# real run: of the 42 minimum-cardinality (|R*| = 1) covers of the selected
+# triple, FORTY are conflict-free — and the two conflicting ones include
+# `dbp:successor -> dbr:Tiberius`, which is the ONLY cover reaching
+# `scoped_empirical_incidences = 3`. Field 5 of the key maximises that
+# annotation, so it decides before V2's new field 7 is ever read, and the
+# conflicting rationale wins on a field no evidence LEVEL depends on.
+#
+# `evidence_rules.json` is explicit about what that annotation is: "An
+# annotation may be preferred when ranking equally strong rationales and may
+# NEVER change a level." It is an ordering preference, not evidence. V3
+# therefore keeps every SAFETY field above the pedagogical one and demotes only
+# the annotation:
+#
+#     V1 / V2 order   ... l0, -scoped_empirical, granularity_risk, [conflict],
+#     V3 order        ... l0, granularity_risk, conflict, -scoped_empirical, ...
+#
+# Two adjacent fields swap and one is inserted. The complete LEVEL profile
+# (fields 1-4) is untouched and is still exhausted first, so V3 can no more buy
+# a weaker evidence level than V2 can, and |R*| is still fixed before key 4 is
+# consulted so neither version can grow a rationale.
+#
+# V3 IS NOT THE DEFAULT. Which of V2 and V3 is pedagogically right is a
+# judgement about teaching material, not a fact this code can settle, so both
+# are shipped, the runner exposes both, and the Augustus outcome under each is
+# reported side by side.
+RATIONALE_OBJECTIVE_V1 = "rationale_objective/1.0.0-fourteen-field"
+RATIONALE_OBJECTIVE_V2 = "rationale_objective/2.0.0-option-reference-conflict"
+RATIONALE_OBJECTIVE_V3 = (
+    "rationale_objective/3.0.0-option-reference-conflict-above-annotation")
+RATIONALE_OBJECTIVES = (RATIONALE_OBJECTIVE_V1, RATIONALE_OBJECTIVE_V2,
+                        RATIONALE_OBJECTIVE_V3)
+DEFAULT_RATIONALE_OBJECTIVE = RATIONALE_OBJECTIVE_V1
+
+
+def option_reference_conflicts(
+    case: "AnswerCase", positions: Sequence[int], fact_indices: Sequence[int]
+) -> tuple[int, tuple[str, ...]]:
+    """How many facts of R name one of the SELECTED distractor options.
+
+    Augustus's minimum rationale was ``dbp:successor -> dbr:Tiberius`` while
+    ``dbr:Tiberius`` was distractor 1. The item is logically sound — the
+    rationale really does discriminate — and pedagogically awkward, because the
+    clue prints one of the four choices.
+
+    Identity is exact equality of the frozen normalized URI. Both sides come out
+    of ``mcq_inputs`` through the same ``normalize_uri`` pipeline and both name
+    a node of the same pinned snapshot, so two spellings of one option are
+    already one URI here; a redirect pair, by contrast, is two distinct local
+    nodes and therefore two genuinely different printed options. No semantic
+    index is consulted, and this function makes no claim beyond string identity
+    of two URIs that were resolved against the same graph.
+
+    Returns ``(count, evidence)`` where ``evidence`` names each offending
+    ``predicate|direction|uri`` so a report never has to re-derive it.
+    """
+    options = {case.candidates[p].uri for p in positions}
+    evidence: list[str] = []
+    for index in fact_indices:
+        quality = case.facts[index].quality
+        if quality.counterpart_uri in options:
+            evidence.append(f"{quality.predicate_uri}|{quality.direction}|"
+                            f"{quality.counterpart_uri}")
+    return len(evidence), tuple(sorted(evidence))
+
+
 
 
 @dataclass(frozen=True)
@@ -514,6 +616,71 @@ class Rationale:
     local_candidate_pool_anonymity_count: int
     local_candidate_pool_anonymity_ratio: float
     direct_identifier_flag: bool
+    #: Prompt 8H-B2-E §10. Computed ALWAYS and reported ALWAYS; it enters the
+    #: ordering only under RATIONALE_OBJECTIVE_V2, so a v1 run publishes the
+    #: measurement without acting on it.
+    option_reference_conflict_count: int = 0
+    option_reference_conflict_evidence: tuple[str, ...] = ()
+
+    @property
+    def option_reference_conflict(self) -> bool:
+        return self.option_reference_conflict_count > 0
+
+    def ranking_key_for(self, objective: str) -> tuple:
+        """The ordering key of the NAMED objective. Smallest wins."""
+        if objective == RATIONALE_OBJECTIVE_V1:
+            return self.ranking_key
+        if objective == RATIONALE_OBJECTIVE_V2:
+            return self.ranking_key_v2
+        if objective == RATIONALE_OBJECTIVE_V3:
+            return self.ranking_key_v3
+        raise ValueError(
+            f"unknown rationale objective {objective!r}; expected one of "
+            f"{RATIONALE_OBJECTIVES}")
+
+    @property
+    def ranking_key_v2(self) -> tuple:
+        """Objective key 4, version 2: v1 with ONE field inserted at position 7.
+
+        The complete evidence profile (fields 1-6 of v1) is copied verbatim and
+        is still exhausted first, so v2 can never prefer a rationale with a
+        weaker minimum level, fewer L2/L1 incidences, more L0 incidences or more
+        granularity risk. Only among rationales that tie on ALL of that does the
+        new field decide, and it decides in the direction §10 asks for: fewer
+        clues that name a printed option.
+
+        Fields 7-14 of v1 follow unchanged and in their original order, so the
+        two keys agree on every pair of rationales with the same conflict count.
+        """
+        head = self.ranking_key[:6]
+        tail = self.ranking_key[6:]
+        return head + (self.option_reference_conflict_count,) + tail
+
+    @property
+    def ranking_key_v3(self) -> tuple:
+        """Objective key 4, version 3: safety first, annotation last.
+
+        Fields 1-4 — the complete evidence LEVEL profile — are copied verbatim
+        from v1 and are still exhausted before anything else, so v3 can never
+        prefer a weaker minimum level or a worse L2/L1/L0 profile. What changes
+        after them is the order of three ORDERING-ONLY fields:
+
+            v1/v2:  -scoped_empirical , granularity_risk , [conflict]
+            v3:      granularity_risk , conflict , -scoped_empirical
+
+        `granularity_risk` moves ABOVE the annotation because it is a semantic
+        SAFETY signal that blocks main-corpus eligibility, while
+        `scoped_empirical` is, by the evidence policy's own words, a preference
+        among equally strong rationales. The option-reference conflict sits
+        between them: below every safety signal, above the annotation.
+        """
+        level_profile = self.ranking_key[:4]
+        tail = self.ranking_key[6:]
+        return (level_profile
+                + (self.granularity_risk_incidences,
+                   self.option_reference_conflict_count,
+                   -self.scoped_empirical_incidences)
+                + tail)
 
     @property
     def ranking_key(self) -> tuple:
@@ -629,6 +796,8 @@ def build_rationale(
     keys = [q.predicate_direction_key for q in qualities]
     redundant = sum(1 for a, b in combinations(range(len(keys)), 2) if keys[a] == keys[b])
     anonymity_count, anonymity_ratio, direct = local_pool_anonymity(case, fact_indices)
+    conflict_count, conflict_evidence = option_reference_conflicts(
+        case, positions, fact_indices)
     masks = tuple(coverage_mask(case.facts[i], positions, threshold) for i in fact_indices)
     union = 0
     for mask in masks:
@@ -655,6 +824,8 @@ def build_rationale(
         local_candidate_pool_anonymity_count=anonymity_count,
         local_candidate_pool_anonymity_ratio=anonymity_ratio,
         direct_identifier_flag=direct,
+        option_reference_conflict_count=conflict_count,
+        option_reference_conflict_evidence=conflict_evidence,
     )
 
 
@@ -686,7 +857,8 @@ def strongest_level_holding_the_minimum(
 
 
 def rank_minimum_rationales(
-    case: AnswerCase, positions: Sequence[int], policy: str
+    case: AnswerCase, positions: Sequence[int], policy: str,
+    objective: str = DEFAULT_RATIONALE_OBJECTIVE,
 ) -> tuple[int, str, list[Rationale]] | None:
     """Exact |R*|, then EVERY rationale of that cardinality, ranked by key 4.
 
@@ -726,7 +898,7 @@ def rank_minimum_rationales(
             ranked.append(build_rationale(case, positions, candidate_facts, threshold))
     if not ranked:
         return None
-    ranked.sort(key=lambda rationale: rationale.ranking_key)
+    ranked.sort(key=lambda rationale: rationale.ranking_key_for(objective))
     return size, level, ranked
 
 
@@ -993,6 +1165,7 @@ def combination_objective_key(
     positions: Sequence[int],
     minimum_rationale_size: int,
     rationale: Rationale,
+    objective: str = DEFAULT_RATIONALE_OBJECTIVE,
 ) -> tuple:
     """The COMPLETE lexicographic objective, keys 1-6. Smallest tuple wins.
 
@@ -1012,7 +1185,7 @@ def combination_objective_key(
     """
     return (
         *combination_prefix_key(case, positions, minimum_rationale_size),
-        rationale.ranking_key,
+        rationale.ranking_key_for(objective),
         sum(case.candidates[p].rank for p in positions),
         tuple(case.candidates[p].uri for p in positions),
     )
@@ -1072,6 +1245,8 @@ class Selection:
     pool: CandidatePool
     feasible_combination_count: int
     combinations_tied_after_objective_key_4: int
+    #: Which VERSIONED rationale objective ordered key 4 of this selection.
+    rationale_objective: str = DEFAULT_RATIONALE_OBJECTIVE
 
     @property
     def search_scope(self) -> str:
@@ -1104,6 +1279,7 @@ def select_distractors(
     case: AnswerCase,
     pool_policy: PoolPolicy = DEFAULT_POOL_POLICY,
     force_pool: bool = False,
+    objective: str = DEFAULT_RATIONALE_OBJECTIVE,
 ) -> Selection | None:
     """Choose k = 3 distractors and their rationale, exactly within the pool.
 
@@ -1145,11 +1321,12 @@ def select_distractors(
         for positions, size in survivors:
             if combination_prefix_key(case, positions, size) != best_prefix:
                 continue
-            ranked = rank_minimum_rationales(case, positions, policy)
+            ranked = rank_minimum_rationales(case, positions, policy, objective)
             if ranked is None:
                 continue
             exact_size, level, rationales = ranked
-            key = combination_objective_key(case, positions, exact_size, rationales[0])
+            key = combination_objective_key(case, positions, exact_size,
+                                            rationales[0], objective)
             finalists.append((key, positions, exact_size, level, rationales))
         if not finalists:
             continue
@@ -1175,6 +1352,7 @@ def select_distractors(
             pool=pool,
             feasible_combination_count=len(survivors),
             combinations_tied_after_objective_key_4=tied,
+            rationale_objective=objective,
         )
     return None
 
@@ -1247,8 +1425,16 @@ def canonical_record(case: AnswerCase, selection: Selection) -> dict:
         "minimum_rationale_level": selection.minimum_rationale_level,
         "minimum_rationale_count_enumerated": selection.minimum_rationale_count_enumerated,
         "rationale": facts,
+        "rationale_objective": selection.rationale_objective,
         "rationale_ranking_key": rationale.ranking_key,
+        "rationale_ranking_key_effective":
+            rationale.ranking_key_for(selection.rationale_objective),
         "rationale_min_level": rationale.rationale_min_level,
+        "option_reference_conflict": rationale.option_reference_conflict,
+        "option_reference_conflict_count": rationale.option_reference_conflict_count,
+        "option_reference_conflict_evidence":
+            list(rationale.option_reference_conflict_evidence),
+        "option_reference_conflict_note": OPTION_REFERENCE_CONFLICT_NOTE,
         "mcq_evidence_level": selection.mcq_evidence_level,
         "coverage_mask": rationale.coverage_mask,
         "full_coverage": rationale.coverage_mask == (1 << K_DISTRACTORS) - 1,

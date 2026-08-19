@@ -103,10 +103,17 @@ __all__ = [
     "LEAK_SOURCE_DERIVATIONAL",
     "LEAK_SOURCE_NOT_EVALUATED",
     "DERIVATIONAL_SUFFIXES",
+    "DEVERBAL_SUFFIXES",
+    "DERIVATIONAL_SUFFIXES_V2",
+    "EPONYMIC_EXACT_SUFFIXES",
     "MINIMUM_STEM_LENGTH",
     "MAXIMUM_STEM_EDIT_DISTANCE",
+    "EPONYMIC_EXACT_MINIMUM_STEM_LENGTH",
+    "CLASS_LEAKAGE_POLICY_VERSION_V2",
     "DerivationalPolicy",
     "DEFAULT_DERIVATIONAL_POLICY",
+    "DERIVATIONAL_POLICY_V2",
+    "eponymic_exact_matches",
     "ClassLeakVerdict",
     "bounded_damerau_levenshtein",
     "derivational_matches",
@@ -184,6 +191,112 @@ MAXIMUM_STEM_EDIT_DISTANCE = 1
 MAXIMUM_DERIVATION_DEPTH = 2
 
 
+# ==========================================================================
+# CLASS-ONLY LEAKAGE v2 — the two branches Prompt 8H-B2-E §9 asks for
+# ==========================================================================
+#
+# The 329-Answer run left two answer-revealing class names standing:
+#
+#     Fluorine    Category:Fluorinating_agents      v1 verdict: SOFT
+#     Mao_Zedong  Category:Maoist_China             v1 verdict: NO_LEAK
+#
+# They fail for two DIFFERENT reasons, so v2 adds two narrowly separated
+# branches rather than one loosened threshold. Neither branch touches the
+# frozen R1 rule, and neither lowers `LeakagePolicy.minimum_token_length`,
+# which would change every RATIONALE verdict in the repository at once — the
+# explicit prohibition in §9.
+#
+# BRANCH B1 — THE DEVERBAL SUFFIX FAMILY (why Fluorine was missed)
+# ----------------------------------------------------------------
+# "fluorinating" is `fluorinate` + `-ing`, i.e. the noun `fluorine` with its
+# final -e replaced before a Latinate verbal suffix. v1 could not see it
+# because none of -ating / -ated / -ation / -ator was in its suffix list, so
+# no stem it could produce came within one edit of "fluorine":
+#
+#     strip "ing"    -> "fluorinat"   distance("fluorine", "fluorinat") = 2
+#     strip "ating"  -> "fluorin"     distance("fluorine", "fluorin")   = 1  ✓
+#
+# The whole repair is therefore four extra suffix strings inside the SAME v1
+# machinery — same six-character stem floor, same one-edit bound. The floor is
+# what keeps it safe: "creation" -> "cre", "nitrated" -> "nitr" and
+# "sulfation" -> "sulf" are all refused before any comparison happens.
+#
+# -ate, -ide, -ine, -ane, -ene, -ol and -yl remain ABSENT, exactly as in v1:
+# admitting them would fold every salt and halide onto its element root. The
+# added strings are longer, morphologically verbal forms and never equal to
+# any of the banned ones, which `test_class_leakage_v2` asserts directly.
+#
+# BRANCH B2 — THE SHORT EPONYMIC STEM (why Mao was missed)
+# --------------------------------------------------------
+# "Mao" is three characters, and R1's tokenizer drops every token shorter than
+# `minimum_token_length` (four). The Answer token therefore never existed for
+# any rule to compare, which is why the v1 verdict was NO_LEAK rather than
+# SOFT. Lowering that global floor to three is precisely what §9 forbids: it
+# would admit "the", "war", "sun" and "art" as leakage tokens for every
+# rationale counterpart in the corpus.
+#
+# The narrow alternative used here: a short Answer token may participate ONLY
+# when the class token is EXACTLY that token plus ONE listed EPONYMIC suffix.
+# Three conditions, all required:
+#
+#   * edit distance 0 — the stem must EQUAL the Answer token (or its frozen
+#     light plural stem). No spelling adjustment is allowed, unlike branch B1;
+#   * derivation depth 1 — one suffix, never a chain. This is what keeps
+#     "artistic" -> "artist" from continuing to "art";
+#   * the suffix must come from EPONYMIC_EXACT_SUFFIXES — the doctrine- and
+#     follower-forming endings (-ism/-ist/-ite/-ian/-esque and their plurals)
+#     that attach to PROPER NAMES. The general adjectival endings (-ic, -an,
+#     -ish, -ese, -oid, -ean) are excluded here, because those attach happily
+#     to common nouns and are the ones a three-character stem would abuse.
+#
+# So "maoist" -> "mao" fires, and "artistic" -> "artist" (an -ic strip, and
+# -ic is not an eponymic suffix) does not. Longer Answer tokens are unaffected:
+# they already reach branch B1 and R1.
+#
+# BOTH BRANCHES ARE OFF BY DEFAULT. `DEFAULT_DERIVATIONAL_POLICY` keeps the v1
+# suffix tuple and an EMPTY eponymic tuple, so every existing caller —
+# including `scripts/run_phase_b2_any_answer_v2.py`, which must stay
+# reproducible as historical evidence — behaves byte-for-byte as before.
+# `DERIVATIONAL_POLICY_V2` opts in, and the v3 runner passes it explicitly.
+
+CLASS_LEAKAGE_POLICY_VERSION_V2 = "class_derivational_eponymic/2.0.0"
+
+#: Latinate deverbal endings. Each is at least four characters, so the
+#: six-character stem floor still refuses every short chemical root.
+DEVERBAL_SUFFIXES: tuple[str, ...] = (
+    "ations",  # fluorinations
+    "ating",   # fluorinating, chlorinating
+    "ation",   # fluorination
+    "ators",   # chlorinators
+    "ated",    # fluorinated, carbonated
+    "ator",    # chlorinator
+)
+
+#: Branch B1's suffix tuple: v1's list plus the deverbal family, longest first
+#: so the stem search behaves identically to v1's ordering discipline.
+DERIVATIONAL_SUFFIXES_V2: tuple[str, ...] = tuple(sorted(
+    set(DERIVATIONAL_SUFFIXES) | set(DEVERBAL_SUFFIXES),
+    key=lambda s: (-len(s), s)))
+
+#: Branch B2's suffix tuple: the eponymic/doctrinal endings only.
+EPONYMIC_EXACT_SUFFIXES: tuple[str, ...] = (
+    "esque",   # Kafkaesque
+    "ians",    # Maoians (plural of -ian)
+    "ists",    # Maoists, Marxists
+    "isms",    # Maoisms
+    "ites",    # Hussites
+    "ian",     # Confucian
+    "ist",     # Maoist, Marxist
+    "ism",     # Maoism, Marxism
+    "ite",     # Hussite
+)
+
+#: How short an EXACT eponymic stem may be. Three characters, which is below
+#: R1's token floor and is the entire reason branch B2 exists; it applies to
+#: NOTHING else, and never to a fuzzy match.
+EPONYMIC_EXACT_MINIMUM_STEM_LENGTH = 3
+
+
 @dataclass(frozen=True)
 class DerivationalPolicy:
     """The complete, explicit configuration of the class-only rule.
@@ -200,6 +313,16 @@ class DerivationalPolicy:
     maximum_derivation_depth: int = MAXIMUM_DERIVATION_DEPTH
     version: str = CLASS_LEAKAGE_POLICY_VERSION
 
+    #: Branch B2. An EMPTY tuple disables the branch completely, which is the
+    #: v1 default: no eponymic suffix means no stem is ever produced, so no
+    #: short Answer token can be compared and the v1 verdict stands unchanged.
+    eponymic_exact_suffixes: tuple[str, ...] = ()
+    eponymic_exact_minimum_stem_length: int = EPONYMIC_EXACT_MINIMUM_STEM_LENGTH
+
+    @property
+    def eponymic_exact_enabled(self) -> bool:
+        return bool(self.eponymic_exact_suffixes)
+
     def as_record(self) -> dict:
         return {
             "class_leakage_policy_version": self.version,
@@ -207,10 +330,27 @@ class DerivationalPolicy:
             "minimum_stem_length": self.minimum_stem_length,
             "maximum_stem_edit_distance": self.maximum_edit_distance,
             "maximum_derivation_depth": self.maximum_derivation_depth,
+            "eponymic_exact_enabled": self.eponymic_exact_enabled,
+            "eponymic_exact_suffixes": list(self.eponymic_exact_suffixes),
+            "eponymic_exact_minimum_stem_length":
+                self.eponymic_exact_minimum_stem_length,
         }
 
 
 DEFAULT_DERIVATIONAL_POLICY = DerivationalPolicy()
+
+#: The Prompt 8H-B2-E §9 configuration. Both branches on. Opt-in only: nothing
+#: in the repository uses it unless a caller passes it explicitly, so the v2
+#: runner's published 329-Answer results stay exactly reproducible.
+DERIVATIONAL_POLICY_V2 = DerivationalPolicy(
+    suffixes=DERIVATIONAL_SUFFIXES_V2,
+    minimum_stem_length=MINIMUM_STEM_LENGTH,
+    maximum_edit_distance=MAXIMUM_STEM_EDIT_DISTANCE,
+    maximum_derivation_depth=MAXIMUM_DERIVATION_DEPTH,
+    version=CLASS_LEAKAGE_POLICY_VERSION_V2,
+    eponymic_exact_suffixes=EPONYMIC_EXACT_SUFFIXES,
+    eponymic_exact_minimum_stem_length=EPONYMIC_EXACT_MINIMUM_STEM_LENGTH,
+)
 
 
 @dataclass(frozen=True)
@@ -349,6 +489,68 @@ def _derivational_stems(token: str, policy: DerivationalPolicy
     return tuple(stems)
 
 
+def eponymic_exact_matches(
+    answer_uri: str,
+    counterpart_uri: str,
+    policy: QualityPolicy,
+    *,
+    derivational: DerivationalPolicy,
+) -> tuple[str, ...]:
+    """Branch B2: a class token that is EXACTLY an Answer token plus one
+    eponymic suffix.
+
+    This is the only place in the repository where a token shorter than
+    ``policy.leakage.minimum_token_length`` may take part in a leakage
+    decision, and every one of the four guards below is load-bearing:
+
+    1. **Exact stem.** The stripped stem must equal the Answer token, or the
+       Answer token's frozen light plural stem. Edit distance zero — no
+       spelling adjustment, unlike branch B1. ``Maoist`` -> ``Mao`` fires;
+       ``Maori`` does not, because ``-i`` is not a listed suffix and ``Maor``
+       is not ``Mao``.
+    2. **Depth one.** One suffix is removed, never a chain. ``Artistic`` yields
+       only ``artist``; it can never continue to ``art``.
+    3. **Eponymic suffixes only.** ``-ism/-ist/-ite/-ian/-esque`` and their
+       plurals build doctrine and follower names from PROPER NAMES. The general
+       adjectival endings that v1 also lists (``-ic``, ``-an``, ``-ish``,
+       ``-ese``, ``-oid``, ``-ean``) are excluded here, because they attach to
+       ordinary common nouns, which is exactly what a three-character stem
+       would otherwise abuse.
+    4. **Class side keeps R1's token floor.** Only the ANSWER side is tokenised
+       at the lower floor. A derived form is necessarily stem + 2 characters or
+       more, so it clears the normal floor by construction and no global
+       threshold moves.
+
+    Returns R1-shaped evidence strings so a mixed evidence column stays
+    readable. An empty tuple means the branch is disabled or found nothing.
+    """
+    if not derivational.eponymic_exact_enabled:
+        return ()
+    floor = max(1, int(derivational.eponymic_exact_minimum_stem_length))
+    # The ANSWER side only: a lower tokenizer floor here cannot affect any
+    # rationale verdict, because no rationale code path calls this function.
+    answer_tokens = leakage_tokens(answer_uri, minimum_length=floor)
+    other_tokens = leakage_tokens(
+        counterpart_uri, minimum_length=policy.leakage.minimum_token_length)
+    suffixes = sorted(set(derivational.eponymic_exact_suffixes),
+                      key=lambda s: (-len(s), s))
+
+    matches: set[str] = set()
+    for b in other_tokens:
+        for suffix in suffixes:
+            if not suffix or not b.endswith(suffix):
+                continue
+            stem = b[: -len(suffix)]
+            if len(stem) < floor:
+                continue
+            for a in answer_tokens:
+                a_stem = _plural_stem(a, policy.leakage.strip_suffixes)
+                if stem == a or stem == a_stem:
+                    matches.add(
+                        f"{a}~{b}:CLASS_EPONYMIC_EXACT_{suffix.upper()}_D0")
+    return tuple(sorted(matches))
+
+
 def derivational_matches(
     answer_uri: str,
     counterpart_uri: str,
@@ -405,6 +607,12 @@ def derivational_matches(
                 if distance <= limit:
                     matches.add(
                         f"{a}~{b}:ANSWER_DERIVATIONAL_{suffix.upper()}_D{distance}")
+
+    # Branch B2 is additive and independent: it can only ADD evidence strings,
+    # never remove one, and it is a no-op whenever the policy leaves
+    # `eponymic_exact_suffixes` empty (which the default does).
+    matches.update(eponymic_exact_matches(
+        answer_uri, counterpart_uri, policy, derivational=derivational))
     return tuple(sorted(matches))
 
 
