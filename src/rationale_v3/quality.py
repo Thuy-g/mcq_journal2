@@ -44,7 +44,7 @@ from urllib.parse import unquote, urlsplit
 
 from rationale_v3.contracts import RationaleV3ContractError
 
-VERSION = "rationale_v3.quality/1.0.0"
+VERSION = "rationale_v3.quality/1.1.0-b2ef"
 
 TEMPLATE_UNKNOWN = "VERBALIZABLE_UNKNOWN"
 LEAK_NONE = "NO_LEAK"
@@ -151,8 +151,34 @@ class QualityPolicy:
     objects: ObjectPolicy
     leakage: LeakagePolicy
     notes: Mapping[str, str] = field(default_factory=dict)
+    #: Prompt 8H-B2-E §12. ``{(predicate_uri, direction): tier}``, consulted
+    #: BEFORE the predicate-only table. Empty for a v1 policy file, so a v1
+    #: policy keeps exactly its v1 tiers.
+    pedagogical_tier_by_key: Mapping[tuple[str, str], int] = field(
+        default_factory=dict)
+    #: ``{(predicate_uri, direction): reason}`` — why a direction-aware tier was
+    #: declared. Provenance only; it never affects an ordering.
+    pedagogical_tier_by_key_reason: Mapping[tuple[str, str], str] = field(
+        default_factory=dict)
 
-    def tier_for(self, predicate_uri: str) -> int:
+    def tier_for(self, predicate_uri: str,
+                 direction: Optional[str] = None) -> int:
+        """The pedagogical tier of a predicate, direction-aware when declared.
+
+        Lookup order is most specific first: the ``(predicate, direction)``
+        entry, then the predicate-only entry, then the policy default. A caller
+        that passes no direction — every caller before Prompt 8H-B2-E — can only
+        ever reach the last two, so the v1 answer is unchanged.
+
+        The direction matters because one infobox slot reads as two different
+        relations depending on which side the Answer is on: ``dbp:products`` OUT
+        lists what an organisation makes, and ``dbp:products`` IN says some firm
+        or mine produces the Answer, which teaches far less.
+        """
+        if direction is not None:
+            keyed = self.pedagogical_tier_by_key.get((predicate_uri, direction))
+            if keyed is not None:
+                return keyed
         return self.pedagogical_tier.get(predicate_uri,
                                          self.pedagogical_tier_default)
 
@@ -173,6 +199,11 @@ class QualityPolicy:
                 self.objects.reject_reason_codes.items())),
             "template_count": len(self.templates),
             "pedagogical_tier_default": self.pedagogical_tier_default,
+            "direction_aware_tier_count": len(self.pedagogical_tier_by_key),
+            "direction_aware_tiers": {
+                f"{predicate}|{direction}": tier
+                for (predicate, direction), tier
+                in sorted(self.pedagogical_tier_by_key.items())},
             "educational_allowlist": sorted(self.objects.educational_allowlist),
             "leakage": {
                 "minimum_token_length": self.leakage.minimum_token_length,
@@ -216,6 +247,14 @@ def load_quality_policy(path: str | Path) -> QualityPolicy:
         pedagogical_tier={str(k): int(v) for k, v
                           in payload.get("pedagogical_tier", {}).items()},
         pedagogical_tier_default=int(payload.get("pedagogical_tier_default", 3)),
+        pedagogical_tier_by_key={
+            (str(entry["predicate_uri"]), str(entry["direction"])):
+                int(entry["tier"])
+            for entry in payload.get("pedagogical_tier_by_key", ())},
+        pedagogical_tier_by_key_reason={
+            (str(entry["predicate_uri"]), str(entry["direction"])):
+                str(entry.get("reason", ""))
+            for entry in payload.get("pedagogical_tier_by_key", ())},
         templates=templates,
         objects=ObjectPolicy(
             resource_namespace_prefixes=tuple(
@@ -459,7 +498,7 @@ def assess_fact_quality(*, answer_uri: str, predicate_uri: str, direction: str,
         leakage=leakage,
         template_id=template.template_id if template else TEMPLATE_UNKNOWN,
         verbalizable=template is not None,
-        pedagogical_tier=policy.tier_for(predicate_uri),
+        pedagogical_tier=policy.tier_for(predicate_uri, direction),
         label_length=len(label),
         token_count=len(leakage_tokens(counterpart_uri, minimum_length=1)),
     )

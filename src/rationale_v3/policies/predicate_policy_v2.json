@@ -1,0 +1,759 @@
+{
+  "version": "predicate_policy/2.0.0",
+  "notes": {
+    "scope": "Hard eligibility filters applied BEFORE the exact set-cover dynamic program (Prompt 8F section 9). A rejected predicate can never appear in a rationale under any evidence policy.",
+    "conservatism": "The reject list is deliberately short and grounded: every entry either belongs to a category named in Prompt 8F section 9.1 (external URL / homepage, thumbnail / image / logo / file, raw media or map) or is a raw infobox display slot actually observed in the Prompt-8D pilot facts. No predicate was rejected speculatively.",
+    "tiers": "pedagogical_tier is an ORDERING aid used only to break ties among equally small rationales. It is not a truth claim and it never changes an evidence level.",
+    "templates": "Prompt 8F stops before natural-language verbalization. The registry below records a TEMPLATE ID and a directional reading only, so that a later verbalization task inherits a checked direction instead of re-deriving one. No sentence is generated here.",
+    "unknown_templates": "A predicate-direction pair with no registered template is VERBALIZABLE_UNKNOWN. It remains usable for diagnostics and can never silently outrank a template-ready rationale.",
+    "what_changed_in_v2": "Three additions and no removals, all grounded in predicate_direction_census.csv (517 observed (predicate, direction) keys, 15,381 raw facts, 311 locally resolvable Answers). (1) The media, layout and template-parameter slots the pinned snapshot ACTUALLY spells are hard-rejected. (2) A direction-aware pedagogical tier table is added; the predicate-only table is kept and is still consulted as the fallback. (3) Twelve verbalization templates are registered for relations whose direction can be read unambiguously. No tier was removed, no predicate was un-rejected, and the 1/2/3 scale is unchanged.",
+    "case_sensitivity_repair": "RDF predicate URIs are case-sensitive. v1 hard-rejected dbp:imageCaption, which the corpus contains ONCE. The spelling that actually occurs is dbp:imagecaption - 5 IN facts and 4 OUT facts over 7 Answers - and it was fully eligible, which is how 'imagecaption -> Crystal_structure' became the winning rationale for Silver_nitrate. Both spellings are now rejected, together with every other layout spelling observed in the census: captionLeft, headerimage, header, signatureType, colours, dipstyle, blank*, *blankname, *namedata, opt*n and altOfficeholder.",
+    "why_products_and_industry_are_not_hard_rejected": "dbp:products (IN) is the second most frequent key in the whole corpus - 1,026 facts over 34 Answers - and it won 27 selected minimum rationales, including Platinum's 'Ngezi mine produces platinum'. It is pedagogically weak in that direction and perfectly ordinary in the other, so it is DEMOTED BY DIRECTION rather than banned, exactly as the prompt requires. Note the honest consequence: the predicate-only tier default was already 3, so writing tier 3 explicitly for (products, IN) changes no ordering by itself. What can move Platinum is the PROMOTION of genuinely educational relations above it, and whether it moves is measured, not assumed.",
+    "why_field_and_fields_stay_at_tier_one": "The census gives no reason to demote them: 30 dbp:fields and 26 dbp:field OUT facts over 19 Answers each, and they are exactly the relation an examiner wants. Their defect is SEMANTIC - the pinned snapshot models no hierarchy among Chemistry, Radiochemistry and Biochemistry - and it is repaired in semantic_relation_policy_v2.json, not here.",
+    "direction_aware_tiers": "pedagogical_tier_by_key is consulted FIRST and pedagogical_tier is the fallback, so every v1 entry keeps its meaning for every direction it is not overridden in. Cohort labels are not consulted anywhere in this file and never reach the ranker.",
+    "tier_scale_unchanged": "1 = strong or core educational relation, 2 = useful contextual relation, 3 = weak or default relation. The scale is NOT expanded to 1..5: a truly unusable metadata slot is hard-rejected instead of being given a fake fourth or fifth tier."
+  },
+  "object_policy": {
+    "resource_namespace_prefixes": [
+      "http://dbpedia.org/resource/"
+    ],
+    "web_archive_hosts": [
+      "web.archive.org",
+      "archive.org",
+      "webcitation.org"
+    ],
+    "media_file_suffixes": [
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".gif",
+      ".svg",
+      ".tif",
+      ".tiff",
+      ".webp",
+      ".ogg",
+      ".ogv",
+      ".oga",
+      ".mp3",
+      ".mp4",
+      ".webm",
+      ".wav",
+      ".pdf",
+      ".djvu"
+    ],
+    "maximum_object_label_length": 120,
+    "minimum_object_label_length": 1,
+    "machine_identifier_minimum_digit_ratio": 0.6,
+    "educational_allowlist": [],
+    "educational_allowlist_note": "An object rejected by the rules above may be re-admitted only by an explicit entry here. The pilot needs none, and an empty list is published rather than omitted so that 'no exception was used' is visible.",
+    "reject_reason_codes": {
+      "OBJECT_EXTERNAL_URL": "The object is not a DBpedia resource: it is an external web address, so it names a page rather than an entity.",
+      "OBJECT_WEB_ARCHIVE_URL": "The object is a Web Archive snapshot URL.",
+      "OBJECT_MEDIA_FILE": "The object names an image, audio, video or document file.",
+      "OBJECT_EMPTY_LABEL": "The object has no readable local name.",
+      "OBJECT_LABEL_TOO_LONG": "The object's readable label exceeds the configured maximum length, so it is a raw literal rather than an entity name.",
+      "OBJECT_MACHINE_IDENTIFIER": "The object's local name is predominantly digits or an opaque identifier with no readable word."
+    }
+  },
+  "leakage_policy": {
+    "minimum_token_length": 4,
+    "minimum_prefix_length": 5,
+    "soft_prefix_length": 4,
+    "strip_suffixes": [
+      "s",
+      "es"
+    ],
+    "hard_reason_code": "ANSWER_LEXICAL_LEAK",
+    "soft_reason_code": "ANSWER_LEXICAL_LEAK_SOFT",
+    "notes": {
+      "pipeline": "Unicode NFKC, percent decoding, casefold, URI local-name extraction, tokenization on underscores / hyphens / punctuation, then whole-token, light-plural-stem and long-prefix comparison. No spaCy, no WordNet, no embedding.",
+      "why_two_thresholds": "A whole-token match at four characters catches 'Adam Smith' against 'Smithsonian'; a five-character prefix catches 'Carbon' against 'Carbonado' while leaving 'Carbon' against 'Boron carbide' alone, whose longest shared prefix is only 'carb'.",
+      "display_labels_are_separate": "Leakage tokenization never feeds display. The old broad remove_parenthetical() behaviour is not used for display or for semantic identity: it turns Iron(III) chloride and Iron(II) chloride into the same string (AUDIT item CE-10, test T2.5), which would both misname the entity and make two choices indistinguishable."
+    }
+  },
+  "reject_reason_codes": {
+    "PREDICATE_EXTERNAL_URL_FIELD": "Carries an external web address rather than a fact about the entity.",
+    "PREDICATE_MEDIA_OR_IMAGE_FIELD": "Names an image, logo, thumbnail or media file.",
+    "PREDICATE_MAP_FIELD": "Names a map image or map rendering parameter.",
+    "PREDICATE_RAW_LAYOUT_SLOT": "A generic infobox display slot (caption, label, free-form data cell) with no stable semantics.",
+    "PREDICATE_TEMPLATE_PARAMETER": "A numbered or positional infobox template parameter, not a property of the entity."
+  },
+  "hard_reject_predicates": {
+    "http://dbpedia.org/property/url": "PREDICATE_EXTERNAL_URL_FIELD",
+    "http://dbpedia.org/property/website": "PREDICATE_EXTERNAL_URL_FIELD",
+    "http://dbpedia.org/property/homepage": "PREDICATE_EXTERNAL_URL_FIELD",
+    "http://dbpedia.org/property/thesisUrl": "PREDICATE_EXTERNAL_URL_FIELD",
+    "http://dbpedia.org/property/externalLink": "PREDICATE_EXTERNAL_URL_FIELD",
+    "http://dbpedia.org/property/image": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/imageName": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/imageFlag": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/thumbnail": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/logo": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/photo": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/file": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/signature": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/map": "PREDICATE_MAP_FIELD",
+    "http://dbpedia.org/property/imageMap": "PREDICATE_MAP_FIELD",
+    "http://dbpedia.org/property/mapCaption": "PREDICATE_MAP_FIELD",
+    "http://dbpedia.org/property/pushpinMap": "PREDICATE_MAP_FIELD",
+    "http://dbpedia.org/property/caption": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/imageCaption": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/label": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/data": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/extra": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/free": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/content": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/blankInfoSec": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/opt1n": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/opt4n": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/prop1text": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/leader1Name": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/imagecaption": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/imagecaptionA": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/captionLeft": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/captionRight": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/imageLeft": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/imageRight": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/imageUpright": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/imageWidth": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/imagesize": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/imageSize": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/imageAlt": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/imagealt": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/headerimage": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/headerImage": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/header": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/footer": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/signatureType": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/signatureAlt": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/signatureSize": "PREDICATE_MEDIA_OR_IMAGE_FIELD",
+    "http://dbpedia.org/property/blank": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/blankInfo": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/blank1InfoSec": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/blank2InfoSec": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/blank3InfoSec": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/blank4InfoSec": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/1blankname": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/2blankname": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/1namedata": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/2namedata": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/opt2n": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/opt3n": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/opt5n": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/prop2text": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/prop3text": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/prop4text": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/colours": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/colors": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/dipstyle": "PREDICATE_RAW_LAYOUT_SLOT",
+    "http://dbpedia.org/property/altOfficeholder": "PREDICATE_TEMPLATE_PARAMETER",
+    "http://dbpedia.org/property/mapAlt": "PREDICATE_MAP_FIELD",
+    "http://dbpedia.org/property/mapSize": "PREDICATE_MAP_FIELD",
+    "http://dbpedia.org/property/pushpinMapAlt": "PREDICATE_MAP_FIELD",
+    "http://dbpedia.org/property/pushpinLabel": "PREDICATE_MAP_FIELD"
+  },
+  "pedagogical_tier_default": 3,
+  "pedagogical_tier": {
+    "http://dbpedia.org/property/almaMater": 1,
+    "http://dbpedia.org/property/education": 1,
+    "http://dbpedia.org/property/birthPlace": 1,
+    "http://dbpedia.org/property/deathPlace": 1,
+    "http://dbpedia.org/property/era": 1,
+    "http://dbpedia.org/property/schoolTradition": 1,
+    "http://dbpedia.org/property/region": 1,
+    "http://dbpedia.org/property/fields": 1,
+    "http://dbpedia.org/property/field": 1,
+    "http://dbpedia.org/property/knownFor": 1,
+    "http://dbpedia.org/property/notableIdeas": 1,
+    "http://dbpedia.org/property/notableWorks": 1,
+    "http://dbpedia.org/property/notableStudents": 1,
+    "http://dbpedia.org/property/mainInterests": 1,
+    "http://dbpedia.org/property/doctoralAdvisor": 1,
+    "http://dbpedia.org/property/doctoralStudents": 1,
+    "http://dbpedia.org/property/academicAdvisors": 1,
+    "http://dbpedia.org/property/workplaces": 1,
+    "http://dbpedia.org/property/workInstitution": 1,
+    "http://dbpedia.org/property/workInstitutions": 1,
+    "http://dbpedia.org/property/author": 1,
+    "http://dbpedia.org/property/influences": 1,
+    "http://dbpedia.org/property/influenced": 1,
+    "http://dbpedia.org/property/formula": 1,
+    "http://dbpedia.org/property/composition": 1,
+    "http://dbpedia.org/property/awards": 1,
+    "http://dbpedia.org/property/prizes": 1,
+    "http://dbpedia.org/property/movement": 2,
+    "http://dbpedia.org/property/nationality": 2,
+    "http://dbpedia.org/property/citizenship": 2,
+    "http://dbpedia.org/property/occupation": 2,
+    "http://dbpedia.org/property/spouse": 2,
+    "http://dbpedia.org/property/children": 2,
+    "http://dbpedia.org/property/relatives": 2,
+    "http://dbpedia.org/property/father": 2,
+    "http://dbpedia.org/property/title": 2,
+    "http://dbpedia.org/property/office": 2,
+    "http://dbpedia.org/property/party": 2,
+    "http://dbpedia.org/property/predecessor": 2,
+    "http://dbpedia.org/property/successor": 2,
+    "http://dbpedia.org/property/monarch": 2,
+    "http://dbpedia.org/property/primeminister": 2,
+    "http://dbpedia.org/property/governmentHead": 2,
+    "http://dbpedia.org/property/leader": 2,
+    "http://dbpedia.org/property/honorificSuffix": 2,
+    "http://dbpedia.org/property/eponym": 2,
+    "http://dbpedia.org/property/namedAfter": 2,
+    "http://dbpedia.org/property/namedFor": 2,
+    "http://dbpedia.org/property/namedafter": 2,
+    "http://dbpedia.org/property/subject": 2,
+    "http://dbpedia.org/property/dedicatedTo": 2,
+    "http://dbpedia.org/property/occupants": 2,
+    "http://dbpedia.org/property/invented": 2,
+    "http://dbpedia.org/property/etymology": 2,
+    "http://dbpedia.org/property/wordOrigin": 2
+  },
+  "templates": [
+    {
+      "predicate_uri": "http://dbpedia.org/property/almaMater",
+      "direction": "OUT",
+      "template_id": "OUT_ALMA_MATER_V1",
+      "reading": "<answer> studied at <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/education",
+      "direction": "OUT",
+      "template_id": "OUT_EDUCATION_V1",
+      "reading": "<answer> was educated at <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/birthPlace",
+      "direction": "OUT",
+      "template_id": "OUT_BIRTH_PLACE_V1",
+      "reading": "<answer> was born in <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/deathPlace",
+      "direction": "OUT",
+      "template_id": "OUT_DEATH_PLACE_V1",
+      "reading": "<answer> died in <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/era",
+      "direction": "OUT",
+      "template_id": "OUT_ERA_V1",
+      "reading": "<answer> belongs to the era of <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/region",
+      "direction": "OUT",
+      "template_id": "OUT_REGION_V1",
+      "reading": "<answer> is associated with the tradition or region <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/schoolTradition",
+      "direction": "OUT",
+      "template_id": "OUT_SCHOOL_TRADITION_V1",
+      "reading": "<answer> belongs to the school of thought <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/movement",
+      "direction": "OUT",
+      "template_id": "OUT_MOVEMENT_V1",
+      "reading": "<answer> belongs to the movement <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/fields",
+      "direction": "OUT",
+      "template_id": "OUT_FIELDS_V1",
+      "reading": "<answer> worked in the field of <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/field",
+      "direction": "OUT",
+      "template_id": "OUT_FIELD_V1",
+      "reading": "<answer> worked in the field of <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/mainInterests",
+      "direction": "OUT",
+      "template_id": "OUT_MAIN_INTERESTS_V1",
+      "reading": "<answer> worked mainly on <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/knownFor",
+      "direction": "OUT",
+      "template_id": "OUT_KNOWN_FOR_V1",
+      "reading": "<answer> is known for <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/notableIdeas",
+      "direction": "OUT",
+      "template_id": "OUT_NOTABLE_IDEAS_V1",
+      "reading": "<answer> introduced the idea of <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/notableWorks",
+      "direction": "OUT",
+      "template_id": "OUT_NOTABLE_WORKS_V1",
+      "reading": "<answer> wrote <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/notableStudents",
+      "direction": "OUT",
+      "template_id": "OUT_NOTABLE_STUDENTS_V1",
+      "reading": "<answer> taught <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/doctoralAdvisor",
+      "direction": "OUT",
+      "template_id": "OUT_DOCTORAL_ADVISOR_V1",
+      "reading": "<answer> was supervised by <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/academicAdvisors",
+      "direction": "OUT",
+      "template_id": "OUT_ACADEMIC_ADVISORS_V1",
+      "reading": "<answer> was advised by <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/doctoralStudents",
+      "direction": "OUT",
+      "template_id": "OUT_DOCTORAL_STUDENTS_V1",
+      "reading": "<answer> supervised <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/workplaces",
+      "direction": "OUT",
+      "template_id": "OUT_WORKPLACES_V1",
+      "reading": "<answer> worked at <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/workInstitution",
+      "direction": "OUT",
+      "template_id": "OUT_WORK_INSTITUTION_V1",
+      "reading": "<answer> worked at <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/workInstitutions",
+      "direction": "OUT",
+      "template_id": "OUT_WORK_INSTITUTIONS_V1",
+      "reading": "<answer> worked at <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/influenced",
+      "direction": "OUT",
+      "template_id": "OUT_INFLUENCED_V1",
+      "reading": "<answer> influenced <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/influences",
+      "direction": "OUT",
+      "template_id": "OUT_INFLUENCES_V1",
+      "reading": "<answer> was influenced by <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/awards",
+      "direction": "OUT",
+      "template_id": "OUT_AWARDS_V1",
+      "reading": "<answer> received <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/prizes",
+      "direction": "OUT",
+      "template_id": "OUT_PRIZES_V1",
+      "reading": "<answer> received <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/nationality",
+      "direction": "OUT",
+      "template_id": "OUT_NATIONALITY_V1",
+      "reading": "<answer> has the nationality <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/citizenship",
+      "direction": "OUT",
+      "template_id": "OUT_CITIZENSHIP_V1",
+      "reading": "<answer> holds the citizenship of <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/occupation",
+      "direction": "OUT",
+      "template_id": "OUT_OCCUPATION_V1",
+      "reading": "<answer> worked as <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/spouse",
+      "direction": "OUT",
+      "template_id": "OUT_SPOUSE_V1",
+      "reading": "<answer> was married to <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/children",
+      "direction": "OUT",
+      "template_id": "OUT_CHILDREN_V1",
+      "reading": "<answer> is a parent of <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/relatives",
+      "direction": "OUT",
+      "template_id": "OUT_RELATIVES_V1",
+      "reading": "<answer> is related to <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/father",
+      "direction": "OUT",
+      "template_id": "OUT_FATHER_V1",
+      "reading": "The father of <answer> is <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/title",
+      "direction": "OUT",
+      "template_id": "OUT_TITLE_V1",
+      "reading": "<answer> held the position <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/office",
+      "direction": "OUT",
+      "template_id": "OUT_OFFICE_V1",
+      "reading": "<answer> held the office <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/party",
+      "direction": "OUT",
+      "template_id": "OUT_PARTY_V1",
+      "reading": "<answer> belonged to <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/predecessor",
+      "direction": "OUT",
+      "template_id": "OUT_PREDECESSOR_V1",
+      "reading": "<answer> succeeded <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/successor",
+      "direction": "OUT",
+      "template_id": "OUT_SUCCESSOR_V1",
+      "reading": "<answer> was succeeded by <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/monarch",
+      "direction": "OUT",
+      "template_id": "OUT_MONARCH_V1",
+      "reading": "<answer> served under the monarch <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/honorificSuffix",
+      "direction": "OUT",
+      "template_id": "OUT_HONORIFIC_SUFFIX_V1",
+      "reading": "<answer> holds the honour <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/formula",
+      "direction": "OUT",
+      "template_id": "OUT_FORMULA_V1",
+      "reading": "The formula of <answer> involves <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/composition",
+      "direction": "OUT",
+      "template_id": "OUT_COMPOSITION_V1",
+      "reading": "<answer> is composed of <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/author",
+      "direction": "IN",
+      "template_id": "IN_AUTHOR_V1",
+      "reading": "<subject> was written by <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/influenced",
+      "direction": "IN",
+      "template_id": "IN_INFLUENCED_V1",
+      "reading": "<subject> influenced <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/influences",
+      "direction": "IN",
+      "template_id": "IN_INFLUENCES_V1",
+      "reading": "<answer> influenced <subject>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/notableStudents",
+      "direction": "IN",
+      "template_id": "IN_NOTABLE_STUDENTS_V1",
+      "reading": "<subject> taught <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/doctoralAdvisor",
+      "direction": "IN",
+      "template_id": "IN_DOCTORAL_ADVISOR_V1",
+      "reading": "<answer> supervised <subject>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/academicAdvisors",
+      "direction": "IN",
+      "template_id": "IN_ACADEMIC_ADVISORS_V1",
+      "reading": "<answer> advised <subject>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/doctoralStudents",
+      "direction": "IN",
+      "template_id": "IN_DOCTORAL_STUDENTS_V1",
+      "reading": "<subject> supervised <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/knownFor",
+      "direction": "IN",
+      "template_id": "IN_KNOWN_FOR_V1",
+      "reading": "<subject> is known for <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/eponym",
+      "direction": "IN",
+      "template_id": "IN_EPONYM_V1",
+      "reading": "<subject> is named after <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/namedAfter",
+      "direction": "IN",
+      "template_id": "IN_NAMED_AFTER_V1",
+      "reading": "<subject> is named after <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/namedFor",
+      "direction": "IN",
+      "template_id": "IN_NAMED_FOR_V1",
+      "reading": "<subject> is named for <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/subject",
+      "direction": "IN",
+      "template_id": "IN_SUBJECT_V1",
+      "reading": "<subject> is about <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/dedicatedTo",
+      "direction": "IN",
+      "template_id": "IN_DEDICATED_TO_V1",
+      "reading": "<subject> is dedicated to <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/formula",
+      "direction": "IN",
+      "template_id": "IN_FORMULA_V1",
+      "reading": "The formula of <subject> involves <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/composition",
+      "direction": "IN",
+      "template_id": "IN_COMPOSITION_V1",
+      "reading": "<subject> is composed of <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/mainInterests",
+      "direction": "IN",
+      "template_id": "IN_MAIN_INTERESTS_V1",
+      "reading": "<subject> worked mainly on <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/fields",
+      "direction": "IN",
+      "template_id": "IN_FIELDS_V1",
+      "reading": "<subject> worked in the field of <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/occupants",
+      "direction": "IN",
+      "template_id": "IN_OCCUPANTS_V1",
+      "reading": "<subject> was occupied by <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/predecessor",
+      "direction": "IN",
+      "template_id": "IN_PREDECESSOR_V1",
+      "reading": "<subject> was succeeded by <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/successor",
+      "direction": "IN",
+      "template_id": "IN_SUCCESSOR_V1",
+      "reading": "<subject> succeeded <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/commander",
+      "direction": "IN",
+      "template_id": "IN_COMMANDER_V1",
+      "reading": "<subject> was commanded by <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/battles",
+      "direction": "OUT",
+      "template_id": "OUT_BATTLES_V1",
+      "reading": "<answer> fought at <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/commands",
+      "direction": "OUT",
+      "template_id": "OUT_COMMANDS_V1",
+      "reading": "<answer> commanded <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/foundedBy",
+      "direction": "IN",
+      "template_id": "IN_FOUNDED_BY_V1",
+      "reading": "<subject> was founded by <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/mother",
+      "direction": "OUT",
+      "template_id": "OUT_MOTHER_V1",
+      "reading": "The mother of <answer> is <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/teacher",
+      "direction": "OUT",
+      "template_id": "OUT_TEACHER_V1",
+      "reading": "<answer> was taught by <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/guru",
+      "direction": "OUT",
+      "template_id": "OUT_GURU_V1",
+      "reading": "<answer> was taught by <object>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/chemical",
+      "direction": "IN",
+      "template_id": "IN_CHEMICAL_V1",
+      "reading": "<subject> contains <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/atmosphereComposition",
+      "direction": "IN",
+      "template_id": "IN_ATMOSPHERE_COMPOSITION_V1",
+      "reading": "The atmosphere of <subject> contains <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/writer",
+      "direction": "IN",
+      "template_id": "IN_WRITER_V1",
+      "reading": "<subject> was written by <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/artist",
+      "direction": "IN",
+      "template_id": "IN_ARTIST_V1",
+      "reading": "<subject> is a work by <answer>."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/religion",
+      "direction": "OUT",
+      "template_id": "OUT_RELIGION_V1",
+      "reading": "<answer> is associated with <object>."
+    }
+  ],
+  "supersedes": "predicate_policy/1.0.0",
+  "supersedes_sha256": "6c07bbe3ab5325a027d89bf28b01e6f20794b9c11f75e09fffdf1d35dfdefa9e",
+  "pedagogical_tier_by_key": [
+    {
+      "predicate_uri": "http://dbpedia.org/property/products",
+      "direction": "IN",
+      "tier": 3,
+      "reason": "an inverse commercial slot: 'some mine or firm produces the Answer'. Educationally weak, but the OUT direction (a company's product list) is ordinary and is deliberately NOT demoted."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/product",
+      "direction": "IN",
+      "tier": 3,
+      "reason": "singular spelling of the same inverse commercial slot"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/industry",
+      "direction": "IN",
+      "tier": 3,
+      "reason": "an inverse commercial slot: 'some firm operates in the industry named by the Answer'. Not hard-rejected: the OUT direction is a legitimate description of an organisation."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/commander",
+      "direction": "IN",
+      "tier": 2,
+      "reason": "'the Answer commanded this battle or force' - a core historical relation; 344 facts over 64 Answers"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/battles",
+      "direction": "OUT",
+      "tier": 2,
+      "reason": "'the Answer fought at this battle' - a core historical relation"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/commands",
+      "direction": "OUT",
+      "tier": 2,
+      "reason": "'the Answer commanded this' - the OUT counterpart of commander"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/foundedBy",
+      "direction": "IN",
+      "tier": 2,
+      "reason": "'this institution was founded by the Answer' - a durable, checkable biographical relation"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/mother",
+      "direction": "OUT",
+      "tier": 2,
+      "reason": "kinship, matching dbp:father which v1 already places at tier 2"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/teacher",
+      "direction": "OUT",
+      "tier": 1,
+      "reason": "scholarly lineage, matching doctoralAdvisor / academicAdvisors"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/guru",
+      "direction": "OUT",
+      "tier": 1,
+      "reason": "scholarly lineage in the Indian-philosophy templates"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/chemical",
+      "direction": "IN",
+      "tier": 2,
+      "reason": "'this body or mixture contains the Answer' - a real chemistry relation; 19 facts over 12 Answers and 7 selected rationales"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/atmosphereComposition",
+      "direction": "IN",
+      "tier": 2,
+      "reason": "'the atmosphere of this body contains the Answer'"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/writer",
+      "direction": "IN",
+      "tier": 2,
+      "reason": "'this work was written by the Answer' - a creative attribution"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/artist",
+      "direction": "IN",
+      "tier": 2,
+      "reason": "'this work is by the Answer' - a creative attribution"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/religion",
+      "direction": "OUT",
+      "tier": 2,
+      "reason": "a stable biographical attribute in the historical cohorts"
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/regent",
+      "direction": "IN",
+      "tier": 2,
+      "reason": "'the Answer acted as regent for this ruler'. No template: the slot is filled in both readings across templates, so its direction cannot be verbalized unambiguously."
+    },
+    {
+      "predicate_uri": "http://dbpedia.org/property/regent",
+      "direction": "OUT",
+      "tier": 2,
+      "reason": "the converse reading of the same slot; likewise no template"
+    }
+  ]
+}
