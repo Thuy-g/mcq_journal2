@@ -251,6 +251,18 @@ from selection.observed_facts import DIRECTION_LABEL, observed_edge_set
 # rule that can drift from the first.
 from rationale_v3.contracts import RationaleProposition
 from rationale_v3.evidence import classify_fact_against_candidate
+# Prompt 8H-B2-G §5. An OPTIONAL, versioned predicate-slot alias layer used for
+# EVIDENCE LOOKUP ONLY. The default is the empty policy, under which
+# `observed_objects_for_key()` is literally `observed.get(key, ())` and every
+# caller that existed before B2-G is unchanged. Under an active policy the
+# CANDIDATE's observed object set is unioned across an audited alias family in
+# the same direction, so `dbp:field` and `dbp:fields` stop producing a false
+# absence. Raw predicates, raw provenance and the pinned KG are never rewritten.
+from rationale_v3.predicate_aliases import (
+    NO_ALIAS_POLICY,
+    PredicateAliasPolicy,
+    observed_objects_for_key,
+)
 
 # --------------------------------------------------------------------------
 # Frozen vocabularies and pinned parameters
@@ -1057,6 +1069,7 @@ def levels_for_candidates(
     semantic_index,
     rulebook,
     scope: str,
+    alias_policy: PredicateAliasPolicy = NO_ALIAS_POLICY,
 ) -> tuple[AnswerFact, ...]:
     """Build aligned ``AnswerFact`` records for one Answer against one roster.
 
@@ -1155,8 +1168,20 @@ def levels_for_candidates(
             classified = classify_fact_against_candidate(
                 proposition=proposition,
                 candidate_uri=candidate.uri,
-                candidate_objects=observed_by_position[position].get(
-                    quality.predicate_direction_key, ()),
+                # `observed_objects_for_key` is `.get(key, ())` under the
+                # default empty alias policy. Under an ACTIVE policy it unions
+                # the candidate's objects across the audited alias family in the
+                # SAME direction, so `dbp:field` and `dbp:fields` stop being two
+                # unrelated keys. The union happens here, BEFORE the classifier,
+                # which is the only placement under which an exact object match
+                # across an alias reaches the NOT_COVERED branch instead of
+                # being read as absence. Nothing is written back: the Answer
+                # fact keeps its own raw predicate and the pinned KG is
+                # untouched.
+                candidate_objects=observed_objects_for_key(
+                    observed_by_position[position],
+                    quality.predicate_direction_key,
+                    policy=alias_policy),
                 semantic_index=semantic_index,
                 rulebook=rulebook,
                 scope=scope)
@@ -1363,6 +1388,7 @@ def build_and_select(
     pool_policy: PoolPolicy = DEFAULT_POOL_POLICY,
     force_pool: bool = False,
     objective: str = DEFAULT_RATIONALE_OBJECTIVE,
+    alias_policy: PredicateAliasPolicy = NO_ALIAS_POLICY,
 ) -> tuple[AnswerCase, Selection | None, dict]:
     """Validate the supplied roster/provenance, reconstruct the Answer's facts,
     classify evidence, build the canonical ``AnswerCase``, and call the frozen
@@ -1407,7 +1433,7 @@ def build_and_select(
         answer_uri, local_kg=local_kg, quality_policy=quality_policy)
     facts = levels_for_candidates(
         quality, roster, local_kg=local_kg, semantic_index=semantic_index,
-        rulebook=rulebook, scope=scope)
+        rulebook=rulebook, scope=scope, alias_policy=alias_policy)
     case = build_case(answer_uri, display_label, roster, facts)
     # `objective` names the VERSIONED rationale ordering (mcq_core
     # RATIONALE_OBJECTIVE_V1 / _V2). It defaults to V1, so every existing caller

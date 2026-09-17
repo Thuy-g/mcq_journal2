@@ -745,7 +745,8 @@ def build_graph_and_rank(
 
 
 def enlarged_source_object_uris(
-    answer_facts, candidate_objects_by_uri: Mapping[str, Mapping]
+    answer_facts, candidate_objects_by_uri: Mapping[str, Mapping],
+    *, alias_policy=None,
 ) -> tuple[str, ...]:
     """Every counterpart URI this run reasons about, sorted and deduplicated.
 
@@ -766,8 +767,20 @@ def enlarged_source_object_uris(
 
     IN and OUT are never merged. κ is `(predicate_uri, direction)` throughout, so
     an object observed under `(p, OUT)` cannot leak into `(p, IN)`.
+
+    ``alias_policy`` (Prompt 8H-B2-G §5) widens the key set to the audited
+    predicate-slot alias families, and ONLY to those. It must be the SAME policy
+    the classifier will run under: the digest is the cache key, so an index
+    built without the aliases would omit exactly the objects the aliased lookup
+    then asks about, and every one of those pairs would come back
+    `UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE` for no reason. Passing ``None`` — the
+    default — reproduces the pre-B2-G key set byte for byte.
     """
     keys = {fact.predicate_direction_key for fact in answer_facts}
+    if alias_policy is not None and getattr(alias_policy, "enabled", False):
+        keys = {alias
+                for key in tuple(keys)
+                for alias in alias_policy.keys_for(key)}
     uris = {fact.counterpart_uri for fact in answer_facts}
     for observed in candidate_objects_by_uri.values():
         for key, objects in observed.items():
