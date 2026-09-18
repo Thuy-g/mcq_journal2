@@ -1,0 +1,434 @@
+{
+  "document": "docs/plans/B3_HUMAN_DECISION_MEMO_2026-09-18.md",
+  "review": "docs/plans/B3_CHOICE_EVIDENCE_ARCHITECTURE_ADVERSARIAL_REVIEW_2026-09-18.md",
+  "reviewed_architecture": "docs/plans/B3_CHOICE_EVIDENCE_FACT_SELECTION_ARCHITECTURE_2026-09-18.md",
+  "prompt": "8H-B3-ARCH-2",
+  "date": "2026-09-18",
+  "branch": "journal2-b2g-final-benchmark-safety-v4-20260918",
+  "status": "DECISION_MATERIAL_NOTHING_DECIDED",
+  "review_verdict": "NOT_READY_FOR_SPEC_FREEZE",
+  "verdict_flips_to_ready_when": [
+    "the human researcher records at least H1, H3, H5, H6, H8b, H10, H13, H14",
+    "an ARCH-2 revision (new file) incorporates changes C1-C12 of the review with an updated summary JSON"
+  ],
+  "approval_legend": {
+    "MUST": "the researcher must decide; the reviewer has no standing",
+    "SHOULD": "the researcher should confirm; a default exists",
+    "DELEGABLE": "a default can be applied and reported; sign-off afterwards",
+    "CONFIRM": "follows from a stated requirement; recorded for completeness"
+  },
+  "decisions": [
+    {
+      "id": "H1",
+      "new": false,
+      "decision": "Is R* always exposed in the pre-answer clue set?",
+      "arch1_default": "always exposed, mandatory even when Answer-only",
+      "evidence": [
+        "professor-required form ends with an A-only identifying clue and 'Who is A?' (handoff section 2)",
+        "handoff sections 20 and 26: the final rationale may be A-only by design",
+        "R* is a minimum-cardinality cover, so every fact is the only cover of some distractor"
+      ],
+      "alternatives": [
+        {"option": "expose only part of R*", "risk": "some distractor is not distinguished by the clues; the kernel guarantee no longer applies to what the learner sees"},
+        {"option": "rely on outside knowledge for some items", "risk": "item correctness becomes unverifiable against the pinned snapshot"}
+      ],
+      "recommended": "always exposed, with presentation policy P1-P6 (Answer-attribute phrasing, no exclusivity marker, full support listed, per-distractor explanation restricted to >= L1 facts, rationale_absence_incidences reported)",
+      "confidence": "HIGH",
+      "human_approval": "MUST",
+      "review_changes": ["C5"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H2",
+      "new": false,
+      "decision": "Separate grounding vocabulary for distractor-owned facts, and how the paper describes it",
+      "arch1_default": "separate vocabulary SHARED / ALTERNATIVE_OBSERVED / ABSENCE_ONLY, never fed upstream; paper wording open",
+      "evidence": [
+        "EVIDENCE_TAXONOMY_V1 section 1: NOT_COVERED has three tests (exact, canonical equivalence, containment); ARCH-1 section 3.6 grounding formula has one",
+        "EVIDENCE_TAXONOMY_V1 section 5: an unavailable semantic index must record UNRESOLVED, never relabel"
+      ],
+      "alternatives": [
+        {"option": "write grounding as levels", "risk": "a distractor-owned 'L1' reads as a kernel-level claim; the protected boundary blurs"},
+        {"option": "separate vocabulary with the one-clause rule", "risk": "containment cases misclassified as observed alternatives; pre-answer clues implicate a contrast the snapshot contradicts"}
+      ],
+      "recommended": "separate names in code with the three frozen tests, plus SHARED_BY_CONTAINMENT and UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE and a granularity-risk annotation on every group; in the paper one observation rule applied in two roles (evidence levels on Answer facts; grounding on any exposed clue)",
+      "confidence": "HIGH",
+      "human_approval": "SHOULD",
+      "review_changes": ["C4"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H3",
+      "new": false,
+      "decision": "Are RATIONALE_ALTERNATIVE groups shown before answering?",
+      "arch1_default": "optional, preferred before; required after",
+      "evidence": [
+        "professor's stated purpose: the graph helps participants understand the answer after responding",
+        "alternatives are singleton distractor-owned groups that ARCH-1's own objective penalises (n_g = 1, s_g = 1)",
+        "taxonomy multi-valued caveat: stating an alternative does not remove the exclusivity reading"
+      ],
+      "alternatives": [
+        {"option": "show before answering", "risk": "item becomes a matching puzzle over four singleton facts; measures something other than knowledge of the rationale; discriminating key exposed four times"},
+        {"option": "show only after answering", "risk": "pre-answer clue carries an exhaustivity implicature that is backed at >= L1 per distractor and cancelled by the explanation"},
+        {"option": "pre-answer as an ablation arm only", "risk": "none beyond study size"}
+      ],
+      "recommended": "post-answer required (COVER_ALT); pre-answer off by default; 'alternatives before answering' a declared ablation arm",
+      "confidence": "MEDIUM-HIGH",
+      "human_approval": "MUST",
+      "review_changes": ["C7"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H4",
+      "new": false,
+      "decision": "Cap K_A on optional Answer-only groups, pre / post",
+      "arch1_default": "0 / 1",
+      "evidence": [
+        "handoff sections 20 and 26: avoid additional A-only supplementary facts",
+        "under the required form an optional Answer-only clue is additional discriminating content, not a name leak"
+      ],
+      "alternatives": [
+        {"option": "K_A > 0 before answering", "risk": "discriminating content is no longer exactly R*; answerability cannot be attributed to the rationale"},
+        {"option": "K_A = 0 after answering", "risk": "one fewer enriching fact about A; otherwise the cleanest graph"},
+        {"option": "K_A = 1 after answering", "risk": "none once the answer is known"}
+      ],
+      "recommended": "0 before; at most 1 after (0 acceptable)",
+      "confidence": "HIGH (pre) / MEDIUM (post)",
+      "human_approval": "MUST (post value)",
+      "review_changes": ["C3"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H5",
+      "new": false,
+      "decision": "Should a versioned require-verbalizable policy exist upstream?",
+      "arch1_default": "not assumed; flagged per item as CE_RATIONALE_NOT_VERBALIZABLE",
+      "evidence": [
+        "10_current_state_post_b2ef section 7.1: contract says barred from main corpus, kernel orders on it only (key 9)",
+        "ARCH-1 section 20: Muhammad's selected rationale contains a template-less fact",
+        "11_final_benchmark_candidate_policy section 1.2: require-clean precedent changed 3 of 11 regression selections, none unusable"
+      ],
+      "alternatives": [
+        {"option": "versioned require-verbalizable policy in a new runner generation", "risk": "unmeasured yield cost; must never grow |R*| or weaken a level"},
+        {"option": "expand the template registry", "risk": "reduces but does not remove the problem"},
+        {"option": "leave the flag, exclude affected items", "risk": "contract text must be corrected; yield loss reported after the fact"},
+        {"option": "verbalise without a template", "risk": "forbidden by the algorithm spec section 12"}
+      ],
+      "recommended": "versioned policy in a new runner generation plus template-coverage expansion; cost measured on the development batches and reported next to the require-clean cost",
+      "confidence": "MEDIUM",
+      "human_approval": "MUST",
+      "review_changes": [],
+      "recorded_decision": null
+    },
+    {
+      "id": "H6",
+      "new": false,
+      "decision": "Exact solver dependency and the policy when no optimality certificate is returned",
+      "arch1_default": "CP-SAT or CBC via PuLP; greedy fallback published with a flag",
+      "evidence": [
+        "scipy 1.17.1 with scipy.optimize.milp (HiGHS) installed in mcq-journal2; ortools, pulp, mip, highspy absent (checked 2026-09-18)",
+        "MINIMAL_RESEARCH_CORE_PLAN: author comprehensibility and few dependencies",
+        "the kernel never substitutes a heuristic for its exact set cover; it declares scope"
+      ],
+      "alternatives": [
+        {"option": "HiGHS via scipy", "risk": "floating point: set gap to zero and re-check in pure Python; matrix-form API"},
+        {"option": "CP-SAT", "risk": "large new binary dependency; integer-exact certificate"},
+        {"option": "CBC via PuLP", "risk": "small new dependency; floating point"},
+        {"option": "pure-Python branch-and-bound in production", "risk": "second exact solver to prove; enumeration worst case"},
+        {"option": "greedy fallback in publication", "risk": "mixes a baseline into the method arm; machine-dependent item set; hides a bounding defect"}
+      ],
+      "recommended": "HiGHS via scipy.optimize.milp, single thread, mip_rel_gap = 0, scipy pinned; pure-Python re-check of every published selection; exhaustive oracle on small instances; publication mode requires a certificate for every solve, otherwise CE_SOLVER_NOT_OPTIMAL, item not published, count in manifest, non-zero exit; greedy is baseline B3 only; CP-SAT the alternative if an integer-exact proof is preferred",
+      "confidence": "MEDIUM-HIGH",
+      "human_approval": "MUST",
+      "review_changes": ["C6"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H7",
+      "new": false,
+      "decision": "Budget units, and absolute versus mandatory-relative post-answer budget",
+      "arch1_default": "groups pre, nodes post; absolute",
+      "evidence": [
+        "a group is one sentence (reading-load unit); a node is the visual unit",
+        "|R*| varies up to rho = 3, so an absolute node budget gives larger rationales less context",
+        "handoff section 26: avoid excessive right-side nodes"
+      ],
+      "alternatives": [
+        {"option": "nodes for both", "risk": "under-measures reading load"},
+        {"option": "relative budget (mandatory core + k)", "risk": "non-uniform graph size; comparability in the human study"},
+        {"option": "absolute budget", "risk": "variable context; mandatory share must be reported"}
+      ],
+      "recommended": "groups before, ENTITY nodes after (class exempt), absolute post-answer budget with the mandatory share reported; revisit only if many CE_SELECTED_MANDATORY_ONLY items",
+      "confidence": "HIGH (units) / LOW (absolute vs relative)",
+      "human_approval": "SHOULD",
+      "review_changes": ["C8"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H8a",
+      "new": false,
+      "decision": "Must the pre-answer question state the shared class?",
+      "arch1_default": "mandatory, provenance-labelled (folded into H8)",
+      "evidence": [
+        "the required form opens with 'A, B, C, and D are all ...'",
+        "support 4, discriminates nothing; provenance is remote category membership (PHASE_B_INPUT_CONTRACT section 6.1)",
+        "soft_overlap of the class label is a v6 selector / publication-policy matter"
+      ],
+      "alternatives": [
+        {"option": "omit it", "risk": "item loses the required form and its only non-discriminating anchor"}
+      ],
+      "recommended": "mandatory",
+      "confidence": "HIGH",
+      "human_approval": "CONFIRM",
+      "review_changes": ["C8"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H8b",
+      "new": false,
+      "decision": "Must the post-answer graph contain a CLASS right node?",
+      "arch1_default": "mandatory CLASS node inside the right-node budget",
+      "evidence": [
+        "the author's original drawing had the node (ARCH-1 section 18)",
+        "constant (support 4), explains nothing about why A is the answer, different provenance (ARCH-1 threat 2), consumes one of at most ten slots",
+        "the professor's graph requirement names only the four left nodes"
+      ],
+      "alternatives": [
+        {"option": "node inside the budget", "risk": "10-25 percent of the explanation budget on a constant; two provenances in one picture; baseline comparability"},
+        {"option": "node, budget-exempt, provenance-marked", "risk": "keeps the author's picture; sweep counts ENTITY nodes only"},
+        {"option": "caption with a provenance line", "risk": "cleanest separation of sources; the frame is still stated in text"}
+      ],
+      "recommended": "caption, budget-exempt; if the author wants the node, budget-exempt and provenance-marked; B_post counts ENTITY nodes only",
+      "confidence": "MEDIUM",
+      "human_approval": "MUST",
+      "review_changes": ["C8"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H9",
+      "new": false,
+      "decision": "Role of offline rarity rare_g",
+      "arch1_default": "ordering annotation only",
+      "evidence": [
+        "legacy code chose the unique fact by live-SPARQL rarity, cached failures as 999999, used it as a difficulty proxy",
+        "CLAUDE.md section 12 and the current-state file forbid reading structural quantities as human difficulty",
+        "rarity is unvalidated against any human measure"
+      ],
+      "alternatives": [
+        {"option": "utility term or early key", "risk": "context shaped by an unvalidated difficulty proxy; weight indefensible"},
+        {"option": "late key or annotation", "risk": "none; breaks ties, makes no claim"}
+      ],
+      "recommended": "late lexicographic key at most (after tier and tokens), or annotation only; never described as difficulty",
+      "confidence": "HIGH",
+      "human_approval": "DELEGABLE",
+      "review_changes": ["C2"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H10",
+      "new": false,
+      "decision": "Letter semantics (A/B/C/D) and the printed option order",
+      "arch1_default": "seeded per-item permutation of the letters; the Answer never at a fixed letter; record carries answer_letter",
+      "evidence": [
+        "professor-required form: 'Who is A?'; graph left side 'A/B/C/D (Answer + three distractors)' (handoff sections 2 and 26)",
+        "legacy code fixed A = answer deliberately (src/mcq_generation.py lines 111-118)",
+        "06_evaluation_plan: randomized option order; permutation robustness (about printed options)",
+        "kernel coverage masks are in position order; handoff section 26 reuses them as 4-bit incidence masks",
+        "review section 3: no learner-visible leak from a fixed A; the printed option order is the only positional leak"
+      ],
+      "alternatives": [
+        {"option": "permute the letters (ARCH-1)", "risk": "items lose the required form; masks re-mapped per item; nothing gained because letters are not options"},
+        {"option": "fix A, randomise B/C/D", "risk": "no learner benefit; loses mask alignment"},
+        {"option": "fix letters, permute printed names per item with a seed", "risk": "position bias across the benchmark left to chance"},
+        {"option": "fix letters, permute printed names with benchmark-level balancing", "risk": "none; standard MCQ practice"}
+      ],
+      "recommended": "A = Answer; B/C/D = distractors in kernel position order; printed option order an independent, seeded, benchmark-balanced permutation recorded as option_order, answer_printed_position, scheme, seed; reused for the post-answer display; withdraw the 'positional leak' rows of ARCH-1 section 18 and the summary JSON",
+      "confidence": "HIGH",
+      "human_approval": "MUST",
+      "review_changes": ["C1"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H11",
+      "new": false,
+      "decision": "What counts as pre-registration and who signs",
+      "arch1_default": "the author, before the human study; the section-16 rule as written",
+      "evidence": [
+        "ARCH-1 section 16 step 4 permits one recorded adjustment after a development-only pilot",
+        "the rule's criteria depend on H3, H13 and H14, which are open (review F-15)",
+        "08_data_and_reproducibility governs manifests and hashes"
+      ],
+      "alternatives": [
+        {"option": "internal dated hashed file in the repository", "risk": "defensible; not a public registry"},
+        {"option": "public pre-registration", "risk": "stronger; more process cost"},
+        {"option": "manifest only", "risk": "the sweep looks like tuning"}
+      ],
+      "recommended": "a dated file under docs/ with the re-derived rule, thresholds, budgets, key order, N_max and strata, solver and version, development-batch identifiers, and the statement that the human test set was never read; committed by the author before any human data; one dated adjustment after the development-only pilot allowed",
+      "confidence": "HIGH",
+      "human_approval": "MUST",
+      "review_changes": ["C12"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H12",
+      "new": false,
+      "decision": "Post-answer explanation prose: template-only or LLM-polished",
+      "arch1_default": "template-only in the first version",
+      "evidence": [
+        "03_journal2_algorithm_spec section 12: the verbalizer must not invent facts",
+        "review policy P2 fixes the explanation basis per distractor"
+      ],
+      "alternatives": [
+        {"option": "template-only", "risk": "stilted prose; fully reproducible and traceable"},
+        {"option": "LLM-polished", "risk": "non-deterministic component, model version, grounding check to validate; polishing can add a forbidden implicature; the study measures the polish"}
+      ],
+      "recommended": "template-only for the benchmark and the human study; LLM polishing, if ever, as a separate later arm with its own grounding audit",
+      "confidence": "HIGH",
+      "human_approval": "MUST",
+      "review_changes": [],
+      "recorded_decision": null
+    },
+    {
+      "id": "H13",
+      "new": true,
+      "decision": "Objective formulation (weighted sum vs constraints + lexicographic keys) and the key order",
+      "arch1_default": "integer weighted sum, thirteen named weights, ce_weights/1.0.0-candidate, two weights swept",
+      "evidence": [
+        "kernel ranking_key (14 fields, v1) and the six-key combination objective are lexicographic tuples (src/mcq_core.py lines 686-700)",
+        "rationale objective v1/v2/v3 differ by key placement and that placement changed Augustus' rationale: the project's existing sensitivity model is the key swap",
+        "03_journal2_algorithm_spec section 11: a lexicographic implementation is acceptable",
+        "under ARCH-1 candidate weights a support-3 group with one absence-grounded letter (8 - 3 = 5) outranks a clean support-2 group (4)",
+        "ARCH-1 section 9.1 names weight tuning as its weakest point"
+      ],
+      "alternatives": [
+        {"option": "weighted sum", "risk": "13-15 numbers to defend; full sensitivity infeasible; safety can be outbid"},
+        {"option": "lexicographic, epsilon = 0", "risk": "never trades a higher key for a lower one; the author must accept strict priority"},
+        {"option": "epsilon-constraint", "risk": "one tolerance per opened level, each in its own unit"},
+        {"option": "hybrid with weights for polish", "risk": "the kernel already uses keys for tier, label length, token count; weights unnecessary"}
+      ],
+      "recommended": "constraints + epsilon-lexicographic with all epsilon_i = 0 by default, canonical order last, versioned objective with adjacent-swap ablations; candidate pre-answer order: balance, shared information, key diversity, fewer sentences, tier, tokens, canonical; candidate post-answer order: fewer ABSENCE_ONLY incidences, fewer risk-bearing groups, shared information, key diversity, fewer nodes, tier, tokens, canonical",
+      "confidence": "HIGH (formulation) / MEDIUM (order)",
+      "human_approval": "MUST",
+      "review_changes": ["C2"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H14",
+      "new": true,
+      "decision": "Pre-answer admissibility rule for optional clue groups",
+      "arch1_default": "W_abs penalty; W_risk on Answer groups only; singletons penalised; Answer-only capped at 0",
+      "evidence": [
+        "EVIDENCE_TAXONOMY_V1 section 2: L0 is not evidence a student may be shown as a reason; section 7: absence is never falsity",
+        "a clue listing three letters invites the inference that the fourth lacks the property; with absence grounding the inference rests on nothing (review sections 4.1-4.2)",
+        "the professor's illustrative item contains a clue of that shape ('B, C, and D were born in Japan' while A was born in Japan)",
+        "handoff sections 20 and 26: supplementary facts should have degree >= 2",
+        "pilot counts 8,485 L0 vs 6,062 L1 over all candidate pairs: yield cost may be large, unmeasured for the three selected distractors"
+      ],
+      "alternatives": [
+        {"option": "penalty only (ARCH-1)", "risk": "absence-grounded clues selected routinely; the paper's open-world claim contradicted by its own items"},
+        {"option": "hard grounding-clean rule", "risk": "unmeasured yield cost; possibly many mandatory-only clue sets"},
+        {"option": "hard rule plus non-exhaustivity instruction (H15)", "risk": "cleanest combination"},
+        {"option": "also forbid A-excluding support-3 groups", "risk": "stricter; fewer elimination routes; pedagogical choice"}
+      ],
+      "recommended": "the hard rule of review C3 (support >= 2; every non-support letter ALTERNATIVE_OBSERVED with risk NONE; verbalizable; no Answer-label or distractor-label leak; K_A = 0), adopted after the yield cost is measured on the development batches and reported next to the penalty-only arm, which is kept as an ablation",
+      "confidence": "MEDIUM",
+      "human_approval": "MUST",
+      "review_changes": ["C3"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H15",
+      "new": true,
+      "decision": "Non-exhaustivity instruction in the participant protocol",
+      "arch1_default": "none before answering; a legend after answering",
+      "evidence": [
+        "exhaustivity is a cancellable implicature; an explicit instruction cancels it",
+        "06_evaluation_plan section 7 materials already include an explicit instruction not to infer that DBpedia is complete (for raters)"
+      ],
+      "alternatives": [
+        {"option": "no instruction", "risk": "participants eliminate from non-mention"},
+        {"option": "instruction", "risk": "weakens elimination; not reliably applied, so it complements H14"},
+        {"option": "instruction plus post-answer legend", "risk": "none; consistent across exposures"}
+      ],
+      "recommended": "one sentence in the pre-answer instructions and the legend after answering, both in the frozen protocol; the human study measures whether participants drew absence inferences",
+      "confidence": "MEDIUM",
+      "human_approval": "MUST",
+      "review_changes": ["C3"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H16",
+      "new": true,
+      "decision": "ABSENCE_ONLY-grounded shared groups in the post-answer graph",
+      "arch1_default": "admissible with a penalty and the legend",
+      "evidence": [
+        "after answering no misdirection can occur; the graph's purpose is explanation",
+        "nothing negative is drawn either way, so the paper's claim does not change"
+      ],
+      "alternatives": [
+        {"option": "admissible, ordered against, counted, legend", "risk": "richer graphs; residual inference measured"},
+        {"option": "banned in both exposures", "risk": "thinner graphs; simplest sentence in the paper"}
+      ],
+      "recommended": "admissible after answering; first post-answer key 'fewer exposed ABSENCE_ONLY incidences'; counted per item and cohort; legend mandatory",
+      "confidence": "MEDIUM",
+      "human_approval": "SHOULD",
+      "review_changes": ["C3"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H17",
+      "new": true,
+      "decision": "Naming and variants of the legacy baseline",
+      "arch1_default": "'legacy heuristic, offline reimplementation' with unsafe steps replaced",
+      "evidence": [
+        "ARCH-1 section 18 lists eight replacements; the fixed-A replacement was not a defect (H10)",
+        "the historical code depends on live SPARQL, caches failures as 999999, picks from sets non-deterministically: not reproducible"
+      ],
+      "alternatives": [
+        {"option": "one object called legacy", "risk": "a reviewer assumes the historical method was evaluated"},
+        {"option": "B2-literal and B2-normalised, optional B2-structural", "risk": "none; more text in the paper"}
+      ],
+      "recommended": "two named objects: B2-literal (historical, reported as not reproducible) and B2-normalised (offline, replacement table, fixed-A row withdrawn); B2-structural optional for the absence-as-contrast count, never shown to humans",
+      "confidence": "HIGH",
+      "human_approval": "SHOULD",
+      "review_changes": ["C10"],
+      "recorded_decision": null
+    },
+    {
+      "id": "H18",
+      "new": true,
+      "decision": "Universe bounding: strata, N_max and the stability threshold",
+      "arch1_default": "N_max = 200 by a modular pre-key; raise until the selection stops changing",
+      "evidence": [
+        "Kingdom of Italy one-hop neighbourhood 3,026 nodes; places and polities are IN-heavy",
+        "the pre-key is blind to node sharing, key diversity and letter balance (review section 9.2)",
+        "bounding touches optional context only; answerability and grounding are unaffected"
+      ],
+      "alternatives": [
+        {"option": "pre-key only", "risk": "interaction-driven context cut"},
+        {"option": "stratified bounding", "risk": "small cost in universe size"},
+        {"option": "no bounding", "risk": "unbounded solve times on polities in principle"}
+      ],
+      "recommended": "stratified bounding (node-sharing, per-key, per-letter strata, then pre-key); stability-at-doubling on the development batches; smallest N_max with at least a declared share (99 percent candidate) of bounded items stable; per-cohort reporting",
+      "confidence": "MEDIUM",
+      "human_approval": "DELEGABLE",
+      "review_changes": ["C9"],
+      "recorded_decision": null
+    }
+  ],
+  "dependencies": [
+    "H10 first: it fixes the record schema; C1 depends on nothing else",
+    "H13 + H14 define the pre-answer solve; H3 and H4 set two hard constraints; H16 sets a post-answer key; the section-16 rule (H11) is re-derived after these five",
+    "H5 belongs to the publication configuration (CLAUDE.md step 1); B3 development does not wait for it",
+    "H6 is independent",
+    "H8b and H7 interact only through what B_post counts",
+    "H18 is measured after H13/H14 are fixed"
+  ],
+  "work_order_note": "CLAUDE.md orders: record configuration (1); publication benchmark (2); verbalization and graph (3); human evaluation (4). B3 implementation on development batches is additive and produces no publication output; building it before step 2 is the researcher's decision and is recorded in the memo's closing line.",
+  "files_created": [
+    "docs/plans/B3_CHOICE_EVIDENCE_ARCHITECTURE_ADVERSARIAL_REVIEW_2026-09-18.md",
+    "docs/plans/B3_HUMAN_DECISION_MEMO_2026-09-18.md",
+    "docs/plans/B3_HUMAN_DECISION_MEMO_2026-09-18.json"
+  ],
+  "files_modified": []
+}
