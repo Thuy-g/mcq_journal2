@@ -1,0 +1,233 @@
+#COMMENT: Candidate Answer nodes for historical events and places.
+#COMMENT: Within each cohort, nodes are ordered approximately from higher to lower priority.
+#COMMENT: Priority criterion: educational importance -> DBpedia presence/usable identity -> sufficiently broad class/category -> rich 1-hop factual neighborhood -> plausible same-cohort distractors -> rationale generation potential with low answer leakage.
+#COMMENT: This is a research candidate pool, not a claim that every lower-ranked node will pass the final Phase-B/B3 feasibility gates.
+#COMMENT: Historical aliases/identities that overlap with modern places are kept in separate historical cohorts so they are not mixed blindly with modern-city cohorts.
+
+
+#COHORT: HISTORICAL EVENTS: JAPANESE HISTORY:
+http://dbpedia.org/resource/Meiji_Restoration
+http://dbpedia.org/resource/Perry_Expedition
+http://dbpedia.org/resource/First_Sino-Japanese_War
+http://dbpedia.org/resource/Russo-Japanese_War
+http://dbpedia.org/resource/Mongol_invasions_of_Japan
+http://dbpedia.org/resource/Battle_of_Sekigahara
+http://dbpedia.org/resource/Boshin_War
+http://dbpedia.org/resource/Attack_on_Pearl_Harbor
+http://dbpedia.org/resource/Atomic_bombings_of_Hiroshima_and_Nagasaki
+http://dbpedia.org/resource/Surrender_of_Japan
+http://dbpedia.org/resource/Second_Sino-Japanese_War
+http://dbpedia.org/resource/Mukden_incident
+http://dbpedia.org/resource/Japan–Korea_Treaty_of_1910
+http://dbpedia.org/resource/Treaty_of_San_Francisco
+http://dbpedia.org/resource/Genpei_War
+http://dbpedia.org/resource/Taika_Reform
+http://dbpedia.org/resource/Satsuma_Rebellion
+http://dbpedia.org/resource/Abolition_of_the_han_system
+http://dbpedia.org/resource/Freedom_and_People's_Rights_Movement
+http://dbpedia.org/resource/Shimabara_Rebellion
+http://dbpedia.org/resource/Ōnin_War
+http://dbpedia.org/resource/1923_Great_Kantō_earthquake
+http://dbpedia.org/resource/Rice_riots_of_1918
+http://dbpedia.org/resource/Jinshin_War
+http://dbpedia.org/resource/Kenmu_Restoration
+http://dbpedia.org/resource/Convention_of_Kanagawa
+http://dbpedia.org/resource/Japanese_invasions_of_Korea_(1592–1598)
+
+
+#COHORT: HISTORICAL EVENTS: WORLD HISTORY:
+http://dbpedia.org/resource/World_War_II
+http://dbpedia.org/resource/World_War_I
+http://dbpedia.org/resource/French_Revolution
+http://dbpedia.org/resource/Industrial_Revolution
+http://dbpedia.org/resource/American_Revolution
+http://dbpedia.org/resource/Russian_Revolution
+http://dbpedia.org/resource/Great_Depression
+http://dbpedia.org/resource/Treaty_of_Versailles
+http://dbpedia.org/resource/First_Opium_War
+http://dbpedia.org/resource/Reformation
+http://dbpedia.org/resource/Napoleonic_Wars
+http://dbpedia.org/resource/Cold_War
+http://dbpedia.org/resource/1911_Revolution
+http://dbpedia.org/resource/Korean_War
+http://dbpedia.org/resource/Vietnam_War
+http://dbpedia.org/resource/The_Holocaust
+http://dbpedia.org/resource/Crusades
+http://dbpedia.org/resource/Thirty_Years'_War
+http://dbpedia.org/resource/Congress_of_Vienna
+http://dbpedia.org/resource/Glorious_Revolution
+http://dbpedia.org/resource/Indian_Rebellion_of_1857
+http://dbpedia.org/resource/Taiping_Rebellion
+http://dbpedia.org/resource/Fall_of_the_Berlin_Wall
+http://dbpedia.org/resource/Dissolution_of_the_Soviet_Union
+http://dbpedia.org/resource/Fall_of_Constantinople
+http://dbpedia.org/resource/Black_Death
+http://dbpedia.org/resource/Mongol_conquests
+http://dbpedia.org/resource/Hijrah
+http://dbpedia.org/resource/Greco-Persian_Wars
+http://dbpedia.org/resource/Punic_Wars
+http://dbpedia.org/resource/Fall_of_the_Western_Roman_Empire
+
+
+#COHORT: HISTORICAL PLACES: JAPANESE CITIES:
+http://dbpedia.org/resource/Kyoto
+http://dbpedia.org/resource/Tokyo
+http://dbpedia.org/resource/Nara_(city)
+http://dbpedia.org/resource/Kamakura
+http://dbpedia.org/resource/Osaka
+http://dbpedia.org/resource/Nagasaki
+http://dbpedia.org/resource/Hiroshima
+http://dbpedia.org/resource/Yokohama
+http://dbpedia.org/resource/Kagoshima
+http://dbpedia.org/resource/Shimonoseki
+http://dbpedia.org/resource/Hakodate
+http://dbpedia.org/resource/Kobe
+http://dbpedia.org/resource/Hagi,_Yamaguchi
+http://dbpedia.org/resource/Nagoya
+#COMMENT: http://dbpedia.org/resource/Edo
+#COMMENT: Edo is historically essential, but it is a temporal/historical identity of present-day Tokyo; do not mix with Tokyo unless canonical/temporal identity handling is explicit.
+#COMMENT: http://dbpedia.org/resource/Heian-kyō
+#COMMENT: Heian-kyō is historically essential but overlaps physically/semantically with Kyoto and may create near-duplicate answer leakage.
+#COMMENT: http://dbpedia.org/resource/Heijō-kyō
+#COMMENT: Heijō-kyō is historically essential but overlaps physically/semantically with Nara and may create near-duplicate answer leakage.
+
+
+#COHORT: HISTORICAL PLACES: WORLD CITIES:
+http://dbpedia.org/resource/Beijing
+http://dbpedia.org/resource/Nanjing
+http://dbpedia.org/resource/Shanghai
+http://dbpedia.org/resource/London
+http://dbpedia.org/resource/Paris
+http://dbpedia.org/resource/Rome
+http://dbpedia.org/resource/Berlin
+http://dbpedia.org/resource/Moscow
+http://dbpedia.org/resource/Washington,_D.C.
+http://dbpedia.org/resource/Istanbul
+http://dbpedia.org/resource/Jerusalem
+http://dbpedia.org/resource/Athens
+http://dbpedia.org/resource/Vienna
+http://dbpedia.org/resource/Saint_Petersburg
+http://dbpedia.org/resource/New_York_City
+http://dbpedia.org/resource/Delhi
+http://dbpedia.org/resource/Kolkata
+http://dbpedia.org/resource/Mumbai
+http://dbpedia.org/resource/Hong_Kong
+http://dbpedia.org/resource/Seoul
+http://dbpedia.org/resource/Pyongyang
+http://dbpedia.org/resource/Baghdad
+http://dbpedia.org/resource/Cairo
+http://dbpedia.org/resource/Mecca
+http://dbpedia.org/resource/Alexandria
+http://dbpedia.org/resource/Sarajevo
+http://dbpedia.org/resource/Philadelphia
+http://dbpedia.org/resource/Manchester
+http://dbpedia.org/resource/Lisbon
+http://dbpedia.org/resource/Madrid
+http://dbpedia.org/resource/Amsterdam
+http://dbpedia.org/resource/Geneva
+http://dbpedia.org/resource/Versailles,_Yvelines
+#COMMENT: http://dbpedia.org/resource/Constantinople
+#COMMENT: Constantinople is historically essential, but it denotes the historical city corresponding to modern Istanbul; keep it out of the same active cohort unless temporal identity is handled explicitly.
+
+
+#COHORT: HISTORICAL POLITIES: FORMER STATES EMPIRES AND KINGDOMS:
+#COMMENT: These are historical polities/former states rather than modern sovereign-state nodes.
+#COMMENT: Okuhara's appendix directly uses Kingdom of Italy, Francia (Frankish Kingdom), and Soviet Union as Answer terms.
+http://dbpedia.org/resource/Roman_Empire
+http://dbpedia.org/resource/Francia
+http://dbpedia.org/resource/Byzantine_Empire
+http://dbpedia.org/resource/Holy_Roman_Empire
+http://dbpedia.org/resource/Mongol_Empire
+http://dbpedia.org/resource/Ottoman_Empire
+http://dbpedia.org/resource/British_Empire
+http://dbpedia.org/resource/Achaemenid_Empire
+http://dbpedia.org/resource/Soviet_Union
+http://dbpedia.org/resource/Russian_Empire
+http://dbpedia.org/resource/German_Empire
+http://dbpedia.org/resource/Austria-Hungary
+http://dbpedia.org/resource/Kingdom_of_Italy
+http://dbpedia.org/resource/Prussia
+http://dbpedia.org/resource/Nazi_Germany
+http://dbpedia.org/resource/Weimar_Republic
+http://dbpedia.org/resource/Mughal_Empire
+http://dbpedia.org/resource/Maurya_Empire
+http://dbpedia.org/resource/Gupta_Empire
+http://dbpedia.org/resource/Umayyad_Caliphate
+http://dbpedia.org/resource/Abbasid_Caliphate
+http://dbpedia.org/resource/Safavid_Iran
+http://dbpedia.org/resource/Timurid_Empire
+http://dbpedia.org/resource/Delhi_Sultanate
+http://dbpedia.org/resource/Ptolemaic_Kingdom
+http://dbpedia.org/resource/Roman_Republic
+http://dbpedia.org/resource/Ancient_Egypt
+http://dbpedia.org/resource/Empire_of_Japan
+http://dbpedia.org/resource/Ryukyu_Kingdom
+http://dbpedia.org/resource/Malacca_Sultanate
+http://dbpedia.org/resource/Kingdom_of_France
+#COMMENT: Do not assume a single DBpedia ontology type for this cohort: some resources are typed as Location/Country, while others are historical periods or broader historical entities.
+
+
+#COHORT: HISTORICAL POLITIES: EAST ASIAN DYNASTIC STATES:
+#COMMENT: Chinese dynasty resources are especially useful educationally, but DBpedia often models them as historical periods rather than ordinary modern countries.
+http://dbpedia.org/resource/Qin_dynasty
+http://dbpedia.org/resource/Han_dynasty
+http://dbpedia.org/resource/Sui_dynasty
+http://dbpedia.org/resource/Tang_dynasty
+http://dbpedia.org/resource/Song_dynasty
+http://dbpedia.org/resource/Yuan_dynasty
+http://dbpedia.org/resource/Ming_dynasty
+http://dbpedia.org/resource/Qing_dynasty
+http://dbpedia.org/resource/Goryeo
+http://dbpedia.org/resource/Joseon
+http://dbpedia.org/resource/Silla
+
+
+#COHORT: HISTORICAL PLACES: HISTORIC CITIES AND FORMER CAPITALS:
+#COMMENT: Damascus is still a living city; it is included because Okuhara uses it as a historical Answer term and because of its major historical role.
+#COMMENT: Historical-name nodes such as Edo and Constantinople should not be mixed blindly with Tokyo and Istanbul in the same candidate set.
+http://dbpedia.org/resource/Damascus
+http://dbpedia.org/resource/Constantinople
+http://dbpedia.org/resource/Chang'an
+http://dbpedia.org/resource/Luoyang
+http://dbpedia.org/resource/Babylon
+http://dbpedia.org/resource/Carthage
+http://dbpedia.org/resource/Persepolis
+http://dbpedia.org/resource/Pataliputra
+http://dbpedia.org/resource/Edo
+http://dbpedia.org/resource/Heian-kyō
+http://dbpedia.org/resource/Heijō-kyō
+http://dbpedia.org/resource/Tenochtitlan
+http://dbpedia.org/resource/Cusco
+http://dbpedia.org/resource/Memphis,_Egypt
+http://dbpedia.org/resource/Thebes,_Egypt
+http://dbpedia.org/resource/Samarkand
+
+
+#COHORT: HISTORICAL PLACES: COUNTRIES:
+http://dbpedia.org/resource/Japan
+http://dbpedia.org/resource/China
+http://dbpedia.org/resource/United_States
+http://dbpedia.org/resource/United_Kingdom
+http://dbpedia.org/resource/France
+http://dbpedia.org/resource/Germany
+http://dbpedia.org/resource/Russia
+http://dbpedia.org/resource/South_Korea
+http://dbpedia.org/resource/North_Korea
+http://dbpedia.org/resource/India
+http://dbpedia.org/resource/Italy
+http://dbpedia.org/resource/Turkey
+http://dbpedia.org/resource/Spain
+http://dbpedia.org/resource/Portugal
+http://dbpedia.org/resource/Netherlands
+http://dbpedia.org/resource/Greece
+http://dbpedia.org/resource/Egypt
+http://dbpedia.org/resource/Iran
+http://dbpedia.org/resource/Iraq
+http://dbpedia.org/resource/Saudi_Arabia
+http://dbpedia.org/resource/Vietnam
+http://dbpedia.org/resource/Mongolia
+http://dbpedia.org/resource/Indonesia
+http://dbpedia.org/resource/Philippines
+http://dbpedia.org/resource/Austria
+http://dbpedia.org/resource/Poland
+#COMMENT: Historical states/empires/dynasties are listed above in dedicated historical-polity cohorts rather than being mixed with modern sovereign-state nodes.
