@@ -1,0 +1,79 @@
+{
+  "document": "docs/plans/B3_CHOICE_EVIDENCE_FACT_SELECTION_ARCHITECTURE_2026-09-18.md",
+  "prompt": "8H-B3-ARCH-1",
+  "date": "2026-09-18",
+  "status": "ARCHITECTURE_DESIGN_ONLY_NOT_PUBLICATION_FINAL",
+  "frozen_semantics_preserved": [
+    "NOT_COVERED / L0 / L1 / L2 decided upstream only; never created, upgraded or rescued here",
+    "SCOPED_EMPIRICAL is an annotation on L1",
+    "L0 never learner-facing; absence never drawn or implied as falsity",
+    "IN and OUT are distinct relation identities and never merge",
+    "LRoleSim consumed as frozen ranks/scores only; nothing feeds back",
+    "R* comes from the frozen set-cover stage and is consumed unchanged",
+    "LRoleSim matching bipartite graph != choice-evidence bipartite graph",
+    "direct_identifier = local structural specificity, not human difficulty"
+  ],
+  "graph_model": {
+    "left_nodes": "A/B/C/D = Answer + 3 distractors, letters assigned by a seeded recorded permutation",
+    "right_nodes": "counterpart entity nodes (kind ENTITY, pinned KG) plus one CLASS node (remote category provenance)",
+    "edge": "(choice, kappa=(predicate, direction), counterpart) observed in the pinned snapshot",
+    "clue_group": "(kappa, counterpart) = one clue sentence; support(g) = choices having that edge",
+    "variables": {"z_g": "expose group", "y_o": "right node present", "x_f": "edge drawn, x_f = z_g (atomicity)", "v_kappa": "key used"},
+    "atomicity": "all edges of a group are exposed together so no partial exposure implicates a false absence",
+    "in_edges": "stored as (c,(p,IN),x), drawn node->choice, verbalized with the IN template, never merged with OUT",
+    "node_identity": "normalize_uri then semantic-index canonical equivalence when available; containment never merges nodes; label merging forbidden",
+    "grounding_annotation": ["SHARED", "ALTERNATIVE_OBSERVED", "ABSENCE_ONLY"],
+    "never_contains": ["negative edges", "absence-derived nodes", "left nodes outside the four choices", "unobserved triples", "ineligible predicates/objects"]
+  },
+  "fact_universe": {
+    "sources": ["AnswerCase.facts with frozen levels", "distractor one-hop facts from the pinned KG via the frozen enumeration", "selected class"],
+    "hard_screens": ["EXCLUDED_INELIGIBLE_*", "EXCLUDED_OPTION_REFERENCE", "EXCLUDED_SELF_LOOP", "EXCLUDED_DUPLICATES_CLASS_NODE", "PRE_EXCLUDED_UNVERBALIZABLE"],
+    "tiers": ["MANDATORY_CLASS", "MANDATORY_RATIONALE", "RATIONALE_ALTERNATIVE", "OPTIONAL_CONTEXT", "EXCLUDED"],
+    "bounding": "optional tier truncated to N_max (candidate 200) by a deterministic pre-key; scope recorded as UNIVERSE_FULL or UNIVERSE_BOUNDED"
+  },
+  "objective": {
+    "form": "integer-weighted utility maximised under hard constraints; evidence semantics are constraints/tiers, never weights",
+    "hard_constraints": ["H1 mandatory groups fixed", "H2 right-node budget", "H3 node/group linking", "H4 atomicity", "H5 excluded groups zero", "H6 pre subset of post", "H7 COVER_ALT per distractor (post)", "H8 optional Answer-only cap K_A", "H9 clue-sentence cap (pre)", "H10 per-letter balance with slack"],
+    "utility_terms": ["multi-choice support", "pedagogical tier", "verbalizable", "key diversity", "repeated-key penalty", "balance slack penalty", "token burden", "optional Answer-only penalty", "singleton penalty", "absence-implicature penalty", "granularity-risk penalty", "soft-leak penalty", "distractor-label-leak penalty"],
+    "candidate_weights_version": "ce_weights/1.0.0-candidate (placeholders for the sensitivity sweep)"
+  },
+  "algorithms_compared": ["exact 0-1 ILP / CP-SAT", "exact enumeration / branch-and-bound / DP", "greedy weighted maximum coverage", "beam search", "legacy heuristic (offline reimplementation)"],
+  "preferred": {
+    "method": "exact 0-1 ILP (CP-SAT or CBC) over the declared universe, solved for pre-answer then nested post-answer",
+    "fallback": "greedy, recorded as CE_SOLVER_UNAVAILABLE_GREEDY_USED, never silent",
+    "test_oracle": "exhaustive enumeration on small instances",
+    "baselines": ["B0 rationale-only", "B1 sorted shared cut", "B2 legacy offline", "B3 greedy", "M exact ILP"],
+    "reasons": ["tiny structured instance", "matches the FULL_EXACT/POOL_EXACT exactness narrative", "safety lives in constraints", "ablation by switches", "weights are honest for pedagogical trade-offs"]
+  },
+  "pre_vs_post": {
+    "design": "one universe, one scoring model, two nested selections (S_pre subset of S_post)",
+    "pre": {"budget": "clue groups", "K_A": 0, "verbalizable_required": true, "token_burden_weighted": true},
+    "post": {"budget": "right nodes", "K_A": 1, "COVER_ALT_required": true, "unverbalizable_admissible": true},
+    "consistency": "nesting + universe + atomicity + no negative edges; residual implicature measured by abs_g and covered by the legend"
+  },
+  "determinism": ["canonical group order", "deterministic node representative", "integer objective, one worker, fixed seed", "sequential lexicographic fix among optima", "seeded letter permutation"],
+  "statuses": ["CE_SELECTED", "CE_SELECTED_MANDATORY_ONLY", "CE_SKIPPED_NOT_LEARNER_FACING", "CE_RATIONALE_NOT_VERBALIZABLE", "CE_RATIONALE_OPTION_REFERENCE_CONFLICT", "CE_MANDATORY_EXCEEDS_BUDGET", "CE_COVER_ALT_RELAXED", "CE_UNIVERSE_BOUNDED", "CE_SEMANTIC_INDEX_UNAVAILABLE_EXACT_IDENTITY", "CE_SOLVER_UNAVAILABLE_GREEDY_USED", "CE_SOLVER_TIMEOUT_GREEDY_USED", "CE_DISTRACTOR_NOT_IN_PINNED_KG", "CE_NESTING_VIOLATED"],
+  "budget_sensitivity": {
+    "sweep": {"B_pre_groups": [2, 3, 4, 5, 6], "B_post_nodes": [4, 5, 6, 7, 8, 9, 10], "N_max": [100, 200, 400], "fragile_weights": ["W_ans", "W_abs"]},
+    "data": "development batches (329 + 189 Answers, v4 outputs, offline)",
+    "choice_rule": "pre-registered knee rule on marginal gain per node with COVER_ALT feasibility >= 95%; B_pre smallest with >= 90% items having every letter in an optional clue",
+    "human_test_set_used_for_tuning": false
+  },
+  "interface": {
+    "consumes": ["AnswerCase", "Selection (post granularity policy)", "GranularityCleanOutcome.learner_facing + rationale.granularity_risk_incidences", "mcq_evidence_level", "selected class + provenance", "phase_b1_provenance", "pinned KG (offline)", "quality policy", "alias policy", "semantic index if available"],
+    "never": ["imports lrolesim", "calls select_distractors", "constructs AnswerCase", "writes into v4 artefacts", "network access"],
+    "package": "src/choice_evidence_v1/ (contracts, universe, grounding, objective, select_exact, select_greedy, select_legacy, graph, clues, metrics)",
+    "runner": "scripts/run_phase_b3_choice_evidence_v1.py",
+    "output_schema": "choice_evidence_v1/1.0.0"
+  },
+  "legacy_mapping": {
+    "reusable": ["kappa->objects equivalence classes", "shared (kappa,o) intersection", "class node with is-a edges", "shared objects >= 2 owners as a preference", "direction-aware drawing", "unique-edge highlight", "anonymised letters", "clue-plan skeleton"],
+    "unsafe": ["absence read as contrast (get_diff_fact)", "next(iter(set)) picks", "fixed A = Answer position", "fabricated fallback prose", "hard-coded MERGE_MAP / SYNONYM_MAP", "live SPARQL popularity/rarity", "cross-predicate uniqueness", "fifth left node from SPARQL", "synthetic relation labels"]
+  },
+  "known_issues_not_repaired": [
+    "granularity_clean.apply_granularity_policy reports STATUS_NO_RISK_PRESENT under report-only even with nonzero incidences; read the incidence count, not the status",
+    "an unverbalizable fact can sit in a main-L1 rationale (contract vs kernel contradiction)"
+  ],
+  "human_decisions": ["H1 R* always in the clue set", "H2 grounding vocabulary vs generic classifier", "H3 alternatives before answering", "H4 K_A values", "H5 require-verbalizable policy upstream", "H6 solver dependency", "H7 budget units", "H8 class frame mandatory", "H9 rarity role", "H10 letter permutation scheme", "H11 pre-registration of the budget rule", "H12 explanation prose generation"],
+  "not_completed_due_to_interruption": []
+}
