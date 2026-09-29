@@ -6,10 +6,16 @@
 ("the review"), reviewing `docs/plans/B3_CHOICE_EVIDENCE_FACT_SELECTION_ARCHITECTURE_2026-09-18.md`
 ("ARCH-1", §21 lists H1–H12).
 **Machine-readable companion** `B3_HUMAN_DECISION_MEMO_2026-09-18.json`.
-**Status** DECISION MATERIAL. Nothing here is decided. Every row ends with an
-empty `RECORDED DECISION` line for the researcher to fill in, date and sign.
-Recording the decisions is what turns the review's verdict from
-`NOT_READY_FOR_SPEC_FREEZE` into a specification that can be frozen.
+**Status** DECISIONS RECORDED on 2026-09-19 through Prompt 8H-B3-ARCH-4
+(the researcher's approved values, transcribed by the ARCH-4 task). Every
+`SIGNED` field reads "researcher approved via ARCH-4 prompt; manual signature
+pending": no handwritten signature was forged, and the manual signature remains
+outstanding. The normative consequence of these decisions is
+`docs/plans/B3_CHOICE_EVIDENCE_SPEC_ARCH4_2026-09-19.md` (specification version
+`choice_evidence_spec/ARCH-4/1.0.0`), whose §1 register repeats the values
+below verbatim. The original decision material (restated decision, evidence,
+alternatives, recommended candidate) is kept unchanged as the record of what
+the researcher decided against and why.
 
 ---
 
@@ -56,6 +62,30 @@ H1–H12 are ARCH-1's. H13–H18 were surfaced by the review and are marked NEW.
 | H17 NEW | legacy baseline naming | "legacy heuristic, offline" | B2-literal versus B2-normalised (+ B2-structural) | HIGH | SHOULD |
 | H18 NEW | `N_max`, strata, stability threshold | 200, pre-key | stratified; threshold after the sweep | MEDIUM | DELEGABLE |
 
+## Recorded decisions (2026-09-19, Prompt 8H-B3-ARCH-4) — quick view
+
+| id | recorded value | signed |
+|---|---|---|
+| H1 | complete frozen `R*` mandatory pre-answer | researcher approved via ARCH-4 prompt; manual signature pending |
+| H2 | separate grounding vocabulary, observational only | researcher approved via ARCH-4 prompt; manual signature pending |
+| H3 | alternatives OFF pre / REQUIRED post where showable | researcher approved via ARCH-4 prompt; manual signature pending |
+| H4 | `K_A_pre = 0`, `K_A_post = 0` | researcher approved via ARCH-4 prompt; manual signature pending |
+| H5 | T2 direction; interface frozen; registry version NOT changed by ARCH-4 | researcher approved via ARCH-4 prompt; manual signature pending |
+| H6 | HiGHS/scipy, exact-only, re-check, no greedy fallback | researcher approved via ARCH-4 prompt; manual signature pending |
+| H7 | N1; `B_pre = 4` groups; `B_post = 7` unique ENTITY nodes | researcher approved via ARCH-4 prompt; manual signature pending |
+| H8a | frame sentence mandatory | researcher approved via ARCH-4 prompt; manual signature pending |
+| H8b | CLASS node retained, budget-exempt, typed, provenance-marked | researcher approved via ARCH-4 prompt; manual signature pending |
+| H9 | rarity = annotation only; never difficulty | researcher approved via ARCH-4 prompt; manual signature pending |
+| H10 | `A` = Answer; `B/C/D` kernel order; printed order seeded + balanced | researcher approved via ARCH-4 prompt; manual signature pending |
+| H11 | dated hashed protocol manifest before human data (spec §12.3) | researcher approved via ARCH-4 prompt; manual signature pending |
+| H12 | deterministic template prose; no LLM polish in the benchmark | researcher approved via ARCH-4 prompt; manual signature pending |
+| H13 | constraints + strict lexicographic, ε = 0; orders as ARCH-2 / prompt | researcher approved via ARCH-4 prompt; manual signature pending |
+| H14 | Arm C hard rule; mandatory-only if nothing survives | researcher approved via ARCH-4 prompt; manual signature pending |
+| H15 | non-exhaustivity instruction mandatory | researcher approved via ARCH-4 prompt; manual signature pending |
+| H16 | ABSENCE_ONLY forbidden pre; post only where needed, legend-marked | researcher approved via ARCH-4 prompt; manual signature pending |
+| H17 | B2-literal / B2-normalised / named structural baselines | researcher approved via ARCH-4 prompt; manual signature pending |
+| H18 | UNIVERSE_FULL default; bounding = explicit fallback only | researcher approved via ARCH-4 prompt; manual signature pending |
+
 ---
 
 ## H1 — Is `R*` always exposed in the pre-answer clue set?
@@ -91,7 +121,8 @@ every item.
 
 **Confidence.** HIGH. **Human approval.** MUST.
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §6.2 C-PRE-1, §9.2):` The complete frozen R* is mandatory in the pre-answer clue set: every R* fact's group is exposed with its full support, in positive Answer-attribute phrasing without exclusivity markers (ARCH-2 P1-P6).
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -130,7 +161,8 @@ upstream. The author owns the sentence.
 
 **Confidence.** HIGH. **Human approval.** SHOULD (the paper wording).
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §2, §4.6):` Keep the separate B3 grounding vocabulary (SHARED, SHARED_BY_CONTAINMENT, ALTERNATIVE_OBSERVED, ABSENCE_ONLY, UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE, plus the risk axis). It is observational only and never changes upstream evidence semantics; ABSENCE_ONLY never means false; SHARED_BY_CONTAINMENT and the semantic-unavailable state remain explicit; IN and OUT never merge.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -168,7 +200,8 @@ off by default, "alternatives before answering" a declared ablation arm.
 **Confidence.** MEDIUM-HIGH. **Human approval.** MUST (a pedagogical
 decision about what the item tests).
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §6.1, §7.2 C-POST-3):` RATIONALE_ALTERNATIVE: OFF before answering; REQUIRED after answering wherever a showable alternative exists (COVER_ALT).
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -199,7 +232,8 @@ choice.
 **Confidence.** HIGH for the pre-answer value; MEDIUM for the post-answer
 value. **Human approval.** MUST for the post-answer value.
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §6.1, §7.2 C-POST-4):` K_A_pre = 0 and K_A_post = 0. No optional Answer-only fact is admitted merely to fill the graph.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -242,7 +276,8 @@ template coverage expanded first so the policy bites rarely.
 **Confidence.** MEDIUM (the cost is unmeasured). **Human approval.** MUST
 (it is part of the publication configuration, CLAUDE.md work-order step 1).
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §4.12):` T2 direction for the future production template policy: the five high-impact generic templates (battles/IN, birthPlace/IN, deathPlace/IN, products/IN, settlementType/OUT) are included; the remaining 43 SAFE_TO_TEMPLATE candidates are the Phase-2 target; none of the 29 NEEDS_HUMAN_REVIEW and none of the 14 REJECT keys is admitted automatically; no Answer-specific template; no unrestricted predicate-label verbalizer. ARCH-4 freezes the template-policy INTERFACE and this direction only: the production registry (predicate_policy_v2.json, 73 templates) is unchanged and must receive a new explicit version at implementation; every verbalizability-affected measurement is rerun after the version changes; verbalizability never rewrites a frozen development Answer/distractor/R* result.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -283,7 +318,8 @@ prefers an integer-exact proof and accepts the dependency.
 **Confidence.** MEDIUM-HIGH. **Human approval.** MUST (dependency policy and
 the publication rule).
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §8):` HiGHS through scipy.optimize.milp. Publication path is exact-only: mip_rel_gap = 0, an optimal certificate required for every solve, pure-Python feasibility/objective re-check, no greedy publication fallback (greedy is structural baseline B3 only).
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -316,7 +352,8 @@ reported per item and per cohort; revisit only if the sweep shows many
 **Confidence.** HIGH for the units; LOW for absolute-versus-relative.
 **Human approval.** SHOULD.
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §6.2 C-PRE-4, §7.2 C-POST-2):` N1: absolute ENTITY-node cap with node-aware pre-answer selection. B_pre = 4 optional clue groups; B_post = 7 unique right-side ENTITY nodes (not fact-group rows; CLASS exempt). The pre solver reserves the immutable post-answer mandatory footprint so the later graph cannot become nested-infeasible.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -341,7 +378,8 @@ required form and the learner loses the only non-discriminating anchor.
 **Recommended candidate.** Mandatory. **Confidence.** HIGH.
 **Human approval.** Confirm (it follows from the form).
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §9.2):` The class/frame statement is mandatory in the textual MCQ.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -374,7 +412,8 @@ node, budget-exempt and provenance-marked. In both cases `B_post` counts
 **Confidence.** MEDIUM. **Human approval.** MUST (it is the author's
 graph design).
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §4.9, §9.3):` A CLASS node is retained in the post-answer bipartite graph for continuity with the professor's/example visualization; it is budget-exempt, explicitly typed and provenance-marked, not an ENTITY evidence node, and affects neither B_post, shared information, rationale coverage nor grounding.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -403,7 +442,8 @@ tokens), or an annotation only; reported, never described as difficulty.
 
 **Confidence.** HIGH. **Human approval.** DELEGABLE with sign-off.
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §4.10, I-15):` Rarity/frequency is an annotation only in ARCH-4 (rare_g is recorded, not a key); at most a very late diagnostic tie-break in a future versioned objective. Structural rarity and direct_identifier are never equated with human difficulty.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -448,7 +488,8 @@ the summary JSON.
 **Confidence.** HIGH. **Human approval.** MUST — it confirms the item form
 the professor requires and fixes the record schema.
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §4.1, §9.4):` Internally A = Answer and B/C/D = the frozen distractor kernel position order. The printed answer-option order for participants is independently seeded, permuted and balanced across the benchmark (scheme ce_option_order/BLOCK_BALANCED_4/1.0.0, recorded). The post-answer bipartite explanation graph uses the canonical A/B/C/D semantics.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -488,7 +529,8 @@ author's.
 **Confidence.** HIGH on the process; the thresholds are the author's.
 **Human approval.** MUST.
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §12.3):` Before any human participant data are collected, a dated and hashed frozen protocol manifest is created covering the exact code commit, KG digest, template-policy version, B3 specification version, benchmark Answer list, random seeds/permutation policy and evaluation protocol. ARCH-4 does not create it (implementation/configuration are not frozen yet); §12.3 of the specification states exactly when and how it is created.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -521,7 +563,8 @@ grounding audit and human comparison.
 **Confidence.** HIGH. **Human approval.** MUST (it shapes the human-study
 materials).
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §9.5):` Benchmark rationale/explanation prose is deterministic and template-based. Optional LLM polishing is not part of the publication benchmark condition.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -568,7 +611,8 @@ and may open one `ε_i`.
 **Human approval.** MUST (both the acceptance of strict priority and the
 order).
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §6.3, §7.3):` Hard constraints + strict lexicographic optimisation, every epsilon = 0. PRE priority preserves the ARCH-2 order: uncovered letters, more shared information, more distinct predicate-direction keys, fewer clue groups, lower tier cost, fewer tokens, canonical tie-break. POST priority: fewer ABSENCE_ONLY incidences, fewer granularity-risk groups, more shared information, more distinct predicate-direction keys, fewer unique ENTITY right nodes, lower pedagogical-tier cost, fewer tokens, canonical deterministic tie-break. Never converted back into a weighted sum.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -616,7 +660,8 @@ author's.
 **Confidence.** MEDIUM (the cost is unmeasured). **Human approval.** MUST
 (a yield-versus-safety trade-off).
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §6.1):` The grounding-clean Arm C is frozen as the pre-answer admissibility rule: support >= 2 for OPTIONAL_CONTEXT; no learner-facing optional clue relying on snapshot absence; no unresolved semantic state; no unresolved granularity-risk group; no Answer-label or distractor-label leakage; no optional group with support exactly {B,C,D}. If no optional context survives, the item stays mandatory-only rather than receiving an unsafe clue. Template expansion is the permitted way to recover context; weakening open-world semantics is not.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -649,7 +694,8 @@ already asks for this).
 
 **Confidence.** MEDIUM. **Human approval.** MUST (protocol design).
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §9.2, §9.3):` The participant protocol states explicitly that the displayed facts are selected explanatory/context facts and are not an exhaustive description of the four entities (pre-answer instruction and post-answer legend).
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -677,7 +723,8 @@ legend mandatory.
 
 **Confidence.** MEDIUM. **Human approval.** SHOULD.
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §6.1, §7.1, §9.3):` ABSENCE_ONLY is forbidden as a pre-answer optional clue; it may be represented post-answer only where the explanation architecture needs it; it is explicitly legend/provenance-marked; it is never verbalized as logical falsity.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -708,7 +755,8 @@ contrast" number.
 
 **Confidence.** HIGH. **Human approval.** SHOULD.
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §13):` Evaluation naming distinguishes B2-literal, B2-normalised (and B2-structural if used) and every structural baseline by its own name (B0 rationale-only, B1 sorted-cut, B3 greedy). Nothing is called an ambiguous 'baseline'.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -741,7 +789,8 @@ grounding" sentence in the paper.
 **Confidence.** MEDIUM. **Human approval.** DELEGABLE after the sweep; the
 threshold is the author's number.
 
-`RECORDED DECISION: ____________________  DATE: __________  SIGNED: __________`
+`RECORDED DECISION (2026-09-19, Prompt 8H-B3-ARCH-4; spec §5):` The normal path uses UNIVERSE_FULL. N_max bounding is not part of the default scientific algorithm. If a future dataset exceeds a declared resource guard, bounding may be used only as an explicit fallback status (CE_UNIVERSE_BOUNDED_FALLBACK), with provenance and separate reporting.
+`DATE: 2026-09-19  SIGNED: researcher approved via ARCH-4 prompt; manual signature pending`
 
 ---
 
@@ -770,9 +819,15 @@ recorded here:
 
 `B3 MAY BE IMPLEMENTED BEFORE THE FINAL BENCHMARK RUN: YES / NO   DATE: __________  SIGNED: __________`
 
+*Not decided by Prompt 8H-B3-ARCH-4 (which forbids production implementation within its own task). This line remains for the researcher.*
+
 ## Files
 
-**Created**: this memo and `B3_HUMAN_DECISION_MEMO_2026-09-18.json`.
-**Modified**: nothing. ARCH-1, its summary JSON, every frozen module, every
+**Created** (2026-09-18): this memo and `B3_HUMAN_DECISION_MEMO_2026-09-18.json`.
+**Modified** (2026-09-19, Prompt 8H-B3-ARCH-4): this memo and its JSON — the
+nineteen `RECORDED DECISION` lines (H1–H7, H8a, H8b, H9–H18) filled with the
+researcher-approved values, dated 2026-09-19, signature field left as
+"researcher approved via ARCH-4 prompt; manual signature pending"; the
+quick-view table added; nothing else changed. Originally modified: nothing. ARCH-1, its summary JSON, every frozen module, every
 v1–v4 output and every context file are untouched; no git operation was
 performed.

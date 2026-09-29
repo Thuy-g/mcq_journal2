@@ -2485,6 +2485,11 @@ def build_package(out_dir: Path, zip_path: Path, *, zip_max_mb: int,
          digest and the entry count against the manifest.
     The numbers reported are consistent by construction:
       zip_entries == regular_files_in_zip + len(MANIFEST_FILES), directory_entries == 0.
+    [ARCH-4 integrity hardening, 2026-09-19] `directory_entries_in_zip` in the
+    returned ARCHIVE_DIGEST record is MEASURED from the archive's central
+    directory (`ZipInfo.is_dir()`), never assumed. The CONTENT_MANIFEST still
+    records the protocol's expectation (0) because it is written before the
+    archive exists; `directory_entries_consistent` says whether the archive met it.
     """
     zip_path = Path(zip_path)
     digest_path = zip_path.parent / f"{zip_path.name}.sha256"
@@ -2544,6 +2549,11 @@ def build_package(out_dir: Path, zip_path: Path, *, zip_max_mb: int,
     with zipfile.ZipFile(zip_path) as zf:
         bad = zf.testzip()
         names = zf.namelist()
+        # [ARCH-4 integrity hardening, 2026-09-19] Count directory entries from the
+        # central directory itself (ZipInfo.is_dir()). An archive re-packed outside
+        # the repository can acquire directory entries and a different digest while
+        # its regular contents still match the manifest; a measured count catches it.
+        directory_entries_measured = sum(1 for info in zf.infolist() if info.is_dir())
     archive_digest = sha256_file(zip_path)
     digest_path.write_text(f"{archive_digest}  {zip_path.name}\n", encoding="utf-8")
     verified = (digest_path.read_text(encoding="utf-8").split()[0] == sha256_file(zip_path))
@@ -2555,7 +2565,10 @@ def build_package(out_dir: Path, zip_path: Path, *, zip_max_mb: int,
         "zip_entries_expected": manifest["zip_entries_expected"],
         "entries_consistent": len(names) == manifest["zip_entries_expected"],
         "regular_files_total": len(entries), "regular_files_in_zip": len(in_zip),
-        "excluded_regular_files": len(excluded), "directory_entries_in_zip": 0,
+        "excluded_regular_files": len(excluded),
+        "directory_entries_in_zip": directory_entries_measured,      # measured (ZipInfo.is_dir), ARCH-4
+        "directory_entries_expected": 0,
+        "directory_entries_consistent": directory_entries_measured == 0,
         "content_manifest": str(out_dir / CONTENT_MANIFEST_NAME),
     }
 

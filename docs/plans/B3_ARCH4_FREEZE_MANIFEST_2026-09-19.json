@@ -1,0 +1,345 @@
+{
+  "kind": "ARCH4_SPECIFICATION_FREEZE_MANIFEST",
+  "NOT_THIS": "This is the ARCHITECTURE/SPECIFICATION freeze of the B3 stage. It is NOT the final human-study preregistration manifest (spec section 12.3 says when and how that one is created), NOT a publication run, NOT the upstream publication configuration, and NOT a template-registry adoption.",
+  "prompt": "8H-B3-ARCH-4",
+  "date": "2026-09-19",
+  "branch": "journal2-b3-choice-evidence-architecture-20260918",
+  "git_head_at_freeze": "9c187c5d5a5849233648e94ef92a1a60e22a2728",
+  "git_note": "The freeze files are uncommitted new/modified files in the working tree at this commit; ARCH-4 performed no git add/commit/push/reset/clean/checkout/branch. The commit that eventually records them is the one the preregistration manifest must cite.",
+  "specification": {
+    "path": "docs/plans/B3_CHOICE_EVIDENCE_SPEC_ARCH4_2026-09-19.md",
+    "sha256": "774709d23784b2bf2c6de281e0e8d2525ec5b81fa5f08004218f88f80dbd145e",
+    "bytes": 61935,
+    "version": "choice_evidence_spec/ARCH-4/1.0.0",
+    "lines": 948
+  },
+  "companions": {
+    "summary_json": {
+      "path": "docs/plans/B3_CHOICE_EVIDENCE_SPEC_ARCH4_2026-09-19.summary.json",
+      "sha256": "0017f17e8431177a60394a6bc183accb065ae9fb5624fd87144f97c3127b2fd2",
+      "bytes": 17505
+    },
+    "implementation_contract": {
+      "path": "docs/plans/B3_ARCH4_IMPLEMENTATION_CONTRACT_2026-09-19.md",
+      "sha256": "87f588315022cc61dbe0445661c9eab1778849fa26eaecedec08c385acf2c536",
+      "bytes": 20444
+    },
+    "decision_memo_md": {
+      "path": "docs/plans/B3_HUMAN_DECISION_MEMO_2026-09-18.md",
+      "sha256": "938e63c951c84faa33926faa8119ae9979f7db59fe90af1bce596dc1640b92af",
+      "bytes": 49722,
+      "note": "RECORDED DECISION lines filled 2026-09-19; signature pending"
+    },
+    "decision_memo_json": {
+      "path": "docs/plans/B3_HUMAN_DECISION_MEMO_2026-09-18.json",
+      "sha256": "9aabaad483f942305472c19bbddd08ac8094ef5649bc6608ef9ea06c0c003562",
+      "bytes": 45922,
+      "status": "DECISIONS_RECORDED_VIA_ARCH4_PROMPT_MANUAL_SIGNATURE_PENDING"
+    }
+  },
+  "frozen_parameters": {
+    "rstar_pre_answer": "mandatory_complete",
+    "grounding_vocabulary": "separate_observational_only",
+    "alternatives_pre": "OFF",
+    "alternatives_post": "REQUIRED_WHERE_SHOWABLE",
+    "K_A_pre": 0,
+    "K_A_post": 0,
+    "template_policy_direction": "T2",
+    "template_registry_changed_by_arch4": false,
+    "solver": "highs-scipy-milp",
+    "mip_rel_gap": 0.0,
+    "publication_path": "exact_only_no_greedy_fallback",
+    "budget_mode": "N1_absolute_entity_node_cap_node_aware_pre",
+    "B_pre": 4,
+    "B_post": 7,
+    "class_frame_sentence": "mandatory",
+    "class_node": "retained_budget_exempt_typed_provenance_marked",
+    "rarity_role": "annotation_only",
+    "letters": "A_answer_BCD_kernel_order",
+    "option_order": "independent_seeded_balanced",
+    "preregistration_manifest_created_by_arch4": false,
+    "prose": "deterministic_template_based",
+    "llm_polish_in_benchmark": false,
+    "objective_form": "hard_constraints_plus_strict_lexicographic",
+    "epsilon": 0,
+    "pre_keys": [
+      "uncovered_letters",
+      "neg_shared_information",
+      "neg_distinct_keys",
+      "clue_groups",
+      "tier_sum",
+      "token_sum"
+    ],
+    "post_keys": [
+      "absence_incidences",
+      "risk_groups",
+      "neg_shared_information",
+      "neg_distinct_keys",
+      "entity_nodes",
+      "tier_sum",
+      "token_sum"
+    ],
+    "pre_admissibility_arm": "C_no_A_excluding_support3",
+    "non_exhaustivity_instruction": "mandatory",
+    "absence_only_pre": "forbidden",
+    "absence_only_post": "representable_legend_marked_never_falsity",
+    "baseline_naming": [
+      "B2-literal",
+      "B2-normalised",
+      "B2-structural(optional)",
+      "B0 rationale-only",
+      "B1 sorted-cut",
+      "B3 greedy"
+    ],
+    "universe_scope_default": "UNIVERSE_FULL",
+    "bounding": "explicit_fallback_only"
+  },
+  "versions": {
+    "specification": "choice_evidence_spec/ARCH-4/1.0.0",
+    "pre_keys": "ce_pre_keys/ARCH-4/1.0.0",
+    "post_keys": "ce_post_keys/ARCH-4/1.0.0",
+    "status_vocabulary": "ce_status/ARCH-4/1.0.0",
+    "grounding_vocabulary": "ce_grounding/ARCH-4/1.0.0",
+    "record_schema": "choice_evidence_v1/1.0.0",
+    "option_order_scheme": "ce_option_order/BLOCK_BALANCED_4/1.0.0",
+    "template_candidates_reference": "template_candidates/1.0.0-proposal-not-production",
+    "production_template_registry_in_force": "src/rationale_v3/policies/predicate_policy_v2.json (73 templates; NOT changed by ARCH-4)"
+  },
+  "dependencies": {
+    "design_and_review_documents": [
+      {
+        "path": "CLAUDE.md",
+        "sha256": "b0d8fcdbf64aea5b3b6eac4bac23930df63fa7b4183999dc9fa6d45ecdc6f0a7",
+        "bytes": 7106
+      },
+      {
+        "path": "docs/plans/B3_CHOICE_EVIDENCE_FACT_SELECTION_ARCHITECTURE_2026-09-18.md",
+        "sha256": "dc166200af5523c1b6e3e9a43d966b74e9b620a314881691d95fdbeffe92972a",
+        "bytes": 62723,
+        "role": "ARCH-1 design"
+      },
+      {
+        "path": "docs/plans/B3_CHOICE_EVIDENCE_FACT_SELECTION_ARCHITECTURE_2026-09-18.summary.json",
+        "sha256": "6556f8219ef7da39dca4febe7799ef94314ddf303aec5b2a4469a665e8dbaa5d",
+        "bytes": 8004,
+        "role": "ARCH-1 digest"
+      },
+      {
+        "path": "docs/plans/B3_CHOICE_EVIDENCE_ARCHITECTURE_ADVERSARIAL_REVIEW_2026-09-18.md",
+        "sha256": "904e0283644c01477ec62d6fd63a635e737e9036c87c0b85b22dff0c78efb010",
+        "bytes": 63670,
+        "role": "ARCH-2 review"
+      },
+      {
+        "path": "docs/plans/B3_DECISION_SUPPORT_MEASUREMENTS_2026-09-18.md",
+        "sha256": "922956edd8f828ef55e23a8ccc25d3d1cde5b51184a46d89c3e391bff2043453",
+        "bytes": 55123,
+        "role": "ARCH-3 development measurements"
+      },
+      {
+        "path": "docs/plans/B3_DECISION_SUPPORT_MEASUREMENTS_2026-09-18.summary.json",
+        "sha256": "5c6465a5bc6951cf6c2399d462ef6450c34ec18a32d98917291e6c9f58015e5c",
+        "bytes": 83481,
+        "role": "ARCH-3 digest"
+      },
+      {
+        "path": "docs/plans/B3_PRE_FREEZE_BLOCKER_RESOLUTION_2026-09-19.md",
+        "sha256": "3da02d95aab09043637795cc8c345c30364b9e2866b4d492db492e80dd55b001",
+        "bytes": 48060,
+        "role": "ARCH-3R development measurements"
+      },
+      {
+        "path": "docs/plans/B3_PRE_FREEZE_BLOCKER_RESOLUTION_2026-09-19.summary.json",
+        "sha256": "5b8d8b03d0706558216a08063e574b25be3afc3043ce86dd0fddea5593d66f06",
+        "bytes": 207651,
+        "role": "ARCH-3R digest"
+      },
+      {
+        "path": "docs/plans/B3_TEMPLATE_COVERAGE_EXPANSION_PLAN_2026-09-19.md",
+        "sha256": "5f14656c0d76dc45ae37aeb27572c8952792b10a2298e14687fcea9ffb127666",
+        "bytes": 27578,
+        "role": "template plan (proposal, not production)"
+      },
+      {
+        "path": "docs/context/EVIDENCE_TAXONOMY_V1.md",
+        "sha256": "68727f11d871afbef7464c875854c678261dfe3840c159f2af99901777c80f76",
+        "bytes": 12942,
+        "role": "terminology authority"
+      },
+      {
+        "path": "docs/context/PHASE_B_INPUT_CONTRACT.md",
+        "sha256": "9d6d0522b1c6a333e6d63160e96e790ff24d4e18f954c035aca6b649cfa4974a",
+        "bytes": 17285,
+        "role": "v4 record contract"
+      }
+    ],
+    "development_evidence_archives": [
+      {
+        "path": "outputs/journal2_b3_decision_support_2026-09-18.zip",
+        "external_sha256_file": "outputs/journal2_b3_decision_support_2026-09-18.zip.sha256",
+        "archive_sha256_external": "8666a3361a918102bd26a4f326ec3ea083b3cd91d4cdf388c29431965800c2bd",
+        "archive_sha256_measured": "8666a3361a918102bd26a4f326ec3ea083b3cd91d4cdf388c29431965800c2bd",
+        "zip_entries": 8346,
+        "zip_entries_expected": 8346,
+        "directory_entries_measured": 0,
+        "testzip_first_bad": null,
+        "verified_2026-09-19": true,
+        "status": "DEVELOPMENT EVIDENCE ONLY"
+      },
+      {
+        "path": "outputs/journal2_b3_pre_freeze_resolution_2026-09-19.zip",
+        "external_sha256_file": "outputs/journal2_b3_pre_freeze_resolution_2026-09-19.zip.sha256",
+        "archive_sha256_external": "be9e9928c5919a2b808469dc5208a9fabc29680c98674d0485329231a8da7d57",
+        "archive_sha256_measured": "be9e9928c5919a2b808469dc5208a9fabc29680c98674d0485329231a8da7d57",
+        "zip_entries": 465,
+        "zip_entries_expected": 465,
+        "directory_entries_measured": 0,
+        "testzip_first_bad": null,
+        "verified_2026-09-19": true,
+        "status": "DEVELOPMENT EVIDENCE ONLY"
+      }
+    ],
+    "template_policy": {
+      "production_registry_in_force": {
+        "path": "src/rationale_v3/policies/predicate_policy_v2.json",
+        "sha256": "1aee777c43c5f91a97099ae9f0a7b4bd0782e7853553c3131f72ff8ae2822a21",
+        "bytes": 34109,
+        "templates": 73,
+        "changed_by_arch4": false
+      },
+      "candidate_file_reference": {
+        "path": "outputs/journal2_b3_pre_freeze_resolution_2026-09-19/template_candidates_v1.json",
+        "sha256": "0577af01409bf3158f4015c08bd4b40aa0d38a6ee7267955070eda11a1ac5b50",
+        "bytes": 358825,
+        "version": "template_candidates/1.0.0-proposal-not-production",
+        "verdicts": {
+          "SAFE_TO_TEMPLATE": 48,
+          "NEEDS_HUMAN_REVIEW": 29,
+          "REJECT": 14
+        }
+      },
+      "selected_direction": "T2 (five high-impact keys Phase 1; remaining 43 SAFE keys Phase 2)"
+    },
+    "pinned_kg_sha256": "e230c5b95e20093631697624d9c46f30a14081b3f415d5027ffaf313bdbbea1b",
+    "protected_modules_unchanged": [
+      {
+        "path": "src/mcq_core.py",
+        "sha256": "ea9e783e008556129a43643c50bd676760ad441afabd3345483dfb70c27ded84",
+        "bytes": 70145
+      },
+      {
+        "path": "src/kg/graph_view.py",
+        "sha256": "0ed2733307ef8116b4ba79c906e8e880711e06f011418b0da3104e4c99716ec4",
+        "bytes": 20713
+      },
+      {
+        "path": "src/MCQ_lrolesim_ClaudeWeb_v2.py",
+        "sha256": "b7c3678ee531a291dee874053529ac498d8c7674b892cff19e817808671ddec0",
+        "bytes": 41102,
+        "role": "executed LRoleSim kernel; pin passes"
+      },
+      {
+        "path": "src/lrolesim/adapter.py",
+        "sha256": "2100fd112b144a4d71d2b0be0ef3465b3c73c9f8d5d8ad78b28a587185d65f33",
+        "bytes": 14833,
+        "role": "frozen adapter; pin passes"
+      }
+    ],
+    "pre_existing_protected_pin_failure": {
+      "path": "src/MCQ_lrolesim.py",
+      "git_tracked": false,
+      "role": "archive-only reference source (not executed)",
+      "sha256_on_disk": "5214aeb7ccaf427dc784ab78cbb26dab1f7422a82a28a66407fbbf7c8059c2d6",
+      "sha256_pinned_in_tests": "a286fe08719a6a049638548aee7526c069b3fec2ab621bec8d540059d3f03617",
+      "touched_by_arch4": false,
+      "test": "tests/test_pipeline_graph_lrolesim.py::TestProtectedSources::test_protected_source_is_unmodified",
+      "result": "130 passed, 1 failed (this one)",
+      "consequence": "blocks the publication benchmark until explained/re-audited; does not block this freeze"
+    },
+    "upstream_module_with_known_defect": {
+      "path": "src/selection/granularity_clean.py",
+      "sha256": "03f541022d7afb4686ffc0434f7b023e283e7541baa89e1a1fb11913643b2a8b",
+      "bytes": 18872,
+      "note": "report-only status defect (ARCH-1 section 20); NOT modified by ARCH-4; blocks the publication run, not this freeze"
+    },
+    "audit_scripts_verification_hardening": [
+      {
+        "path": "scripts/audit_b3_choice_evidence_decisions.py",
+        "sha256_before_arch4": "56c123783b2141d0bca9852eeea53c24ccb448876e0b983980683724e66c299c",
+        "sha256_after_arch4": "999e12dae1b3c1c0a3c3266e54e0775d5dafeb5c8e266f4862999218a72468df",
+        "change": "build_package(): directory_entries_in_zip measured from ZipInfo.is_dir(); +directory_entries_expected, +directory_entries_consistent; docstring note; no measurement code touched"
+      },
+      {
+        "path": "scripts/audit_b3_pre_freeze_resolution.py",
+        "sha256_before_arch4": "de5f56c6b3cab65ee306c1081e9eff623a174ac129113c6ad5949506405447a5",
+        "sha256_after_arch4": "8f16230ad5aa5cf5ecee7fe5da5c2f9c8080bcc5d738fb619f43f725d8ac60c3",
+        "change": "stage_package(): directory_entries_in_zip measured from ZipInfo.is_dir(); +directory_entries_declared_in_manifest, +directory_entries_measured_equal_declared; no measurement code touched"
+      }
+    ],
+    "environment": {
+      "python": "3.11.15",
+      "scipy": "1.17.1",
+      "solver": "HiGHS via scipy.optimize.milp",
+      "network": "none"
+    }
+  },
+  "changes_that_require_a_new_specification_version": [
+    "any frozen parameter above",
+    "any key order or the addition of a key (including rarity)",
+    "any admissibility row",
+    "the post-answer admissible set",
+    "the canonical order",
+    "the status vocabulary",
+    "the option-order scheme",
+    "the resource-guard values or the fallback bounding parameters",
+    "the CLASS-node policy",
+    "the record schema (major)"
+  ],
+  "preregistration_manifest": {
+    "created_by_arch4": false,
+    "to_be_created": "after the final upstream publication run and the B3 run on it, before any human data; docs/protocol/B3_HUMAN_STUDY_PREREGISTRATION_<date>.json + .md; signed by the researcher (spec section 12.3)",
+    "must_cite": [
+      "git commit",
+      "protected-module and B3-package SHA-256",
+      "pinned KG digest",
+      "TemplatePolicyRef (registry version + SHA-256)",
+      "this specification version and SHA-256",
+      "benchmark Answer list + SHA-256",
+      "benchmark_seed + option-order scheme",
+      "evaluation protocol incl. H15 text and legend",
+      "flagged-status counts"
+    ]
+  },
+  "checks_run_by_arch4": {
+    "pytest": {
+      "command": "python -m pytest -q tests/test_pipeline_graph_lrolesim.py",
+      "passed": 130,
+      "failed": 1,
+      "failed_test": "TestProtectedSources::test_protected_source_is_unmodified[src/MCQ_lrolesim.py-a286fe08...]",
+      "failure_is_pre_existing": true,
+      "file_touched_by_arch4": false
+    },
+    "py_compile": [
+      "scripts/audit_b3_choice_evidence_decisions.py",
+      "scripts/audit_b3_pre_freeze_resolution.py"
+    ],
+    "json_validation": "all JSON deliverables load",
+    "memo_vs_summary_frozen_parameters_equal": true,
+    "forbidden_vocabulary_scan": "no hit in ARCH-4 text; remaining hits are unchanged 2026-09-18 memo prose",
+    "tests_not_run": "no other suite applies (no production source created); no measurement stage rerun"
+  },
+  "blockers_before_production_implementation": [
+    "researcher's manual signature on the decision memo (recorded via ARCH-4 prompt; pending)",
+    "researcher's answer to 'B3 may be implemented before the final benchmark run: YES / NO' (memo closing line; not decided by ARCH-4)",
+    "test plan of the implementation contract in place before solver code"
+  ],
+  "blockers_before_final_publication_benchmark": [
+    "upstream publication configuration not yet recorded (CLAUDE.md step 1: candidate-validity policy, granularity-risk policy, rationale objective, M1 node budget)",
+    "granularity_clean report-only status defect (ARCH-1 section 20): apply_granularity_policy() returns STATUS_NO_RISK_PRESENT under report-only with a non-zero incidence count; fix in new versioned code",
+    "main-L1 / unverbalizable contradiction (ARCH-1 section 20; H5): production registry version + versioned require-verbalizable policy in a new runner generation, or exclusion with reported yield; the publication configuration must record which",
+    "every verbalizability-dependent measurement rerun on the frozen configuration and registry version",
+    "preregistration manifest (spec section 12.3) before any human data",
+    "pre-existing protected-source pin failure (not caused by ARCH-4): git-untracked archive-only reference file src/MCQ_lrolesim.py hashes to 5214aeb7… while tests/test_pipeline_graph_lrolesim.py pins a286fe08… (rebaselined 2026-08-12); the executed kernel src/MCQ_lrolesim_ClaudeWeb_v2.py and every other protected pin pass; explain and restore or re-audit the pin before the publication benchmark"
+  ],
+  "verdict": "ARCH4_SPEC_FROZEN"
+}

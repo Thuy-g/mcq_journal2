@@ -1,0 +1,410 @@
+{
+  "document": "docs/plans/B3_CHOICE_EVIDENCE_SPEC_ARCH4_2026-09-19.md",
+  "prompt": "8H-B3-ARCH-4",
+  "date": "2026-09-19",
+  "branch": "journal2-b3-choice-evidence-architecture-20260918",
+  "status": "ARCH4_SPEC_FROZEN",
+  "what_this_is": "architecture/specification freeze of the B3 choice-evidence stage",
+  "what_this_is_not": [
+    "production code (src/choice_evidence_v1/ does not exist)",
+    "a publication run or a final benchmark result (all numbers are DEVELOPMENT evidence: 396 learner-facing items, 329 + 189 Answers, v4 offline replay)",
+    "an adoption of any template into the production registry (predicate_policy_v2.json unchanged)",
+    "the upstream publication configuration (CLAUDE.md work-order step 1, still a human decision)",
+    "the human-study preregistration manifest (spec section 12.3 states when and how it is created)"
+  ],
+  "versions": {
+    "specification": "choice_evidence_spec/ARCH-4/1.0.0",
+    "pre_keys": "ce_pre_keys/ARCH-4/1.0.0",
+    "post_keys": "ce_post_keys/ARCH-4/1.0.0",
+    "status_vocabulary": "ce_status/ARCH-4/1.0.0",
+    "grounding_vocabulary": "ce_grounding/ARCH-4/1.0.0",
+    "record_schema": "choice_evidence_v1/1.0.0",
+    "option_order_scheme": "ce_option_order/BLOCK_BALANCED_4/1.0.0",
+    "template_candidates_reference": "template_candidates/1.0.0-proposal-not-production",
+    "production_template_registry_in_force": "src/rationale_v3/policies/predicate_policy_v2.json (73 templates; NOT changed by ARCH-4)"
+  },
+  "frozen_parameters": {
+    "B_post": 7,
+    "B_pre": 4,
+    "K_A_post": 0,
+    "K_A_pre": 0,
+    "absence_only_post": "representable_legend_marked_never_falsity",
+    "absence_only_pre": "forbidden",
+    "alternatives_post": "REQUIRED_WHERE_SHOWABLE",
+    "alternatives_pre": "OFF",
+    "baseline_naming": [
+      "B2-literal",
+      "B2-normalised",
+      "B2-structural(optional)",
+      "B0 rationale-only",
+      "B1 sorted-cut",
+      "B3 greedy"
+    ],
+    "bounding": "explicit_fallback_only",
+    "budget_mode": "N1_absolute_entity_node_cap_node_aware_pre",
+    "class_frame_sentence": "mandatory",
+    "class_node": "retained_budget_exempt_typed_provenance_marked",
+    "epsilon": 0,
+    "grounding_vocabulary": "separate_observational_only",
+    "letters": "A_answer_BCD_kernel_order",
+    "llm_polish_in_benchmark": false,
+    "mip_rel_gap": 0.0,
+    "non_exhaustivity_instruction": "mandatory",
+    "objective_form": "hard_constraints_plus_strict_lexicographic",
+    "option_order": "independent_seeded_balanced",
+    "post_keys": [
+      "absence_incidences",
+      "risk_groups",
+      "neg_shared_information",
+      "neg_distinct_keys",
+      "entity_nodes",
+      "tier_sum",
+      "token_sum"
+    ],
+    "pre_admissibility_arm": "C_no_A_excluding_support3",
+    "pre_keys": [
+      "uncovered_letters",
+      "neg_shared_information",
+      "neg_distinct_keys",
+      "clue_groups",
+      "tier_sum",
+      "token_sum"
+    ],
+    "preregistration_manifest_created_by_arch4": false,
+    "prose": "deterministic_template_based",
+    "publication_path": "exact_only_no_greedy_fallback",
+    "rarity_role": "annotation_only",
+    "rstar_pre_answer": "mandatory_complete",
+    "solver": "highs-scipy-milp",
+    "template_policy_direction": "T2",
+    "template_registry_changed_by_arch4": false,
+    "universe_scope_default": "UNIVERSE_FULL"
+  },
+  "units": {
+    "B_pre": "optional OPTIONAL_CONTEXT clue groups in S_pre (mandatory R* groups and the CLASS frame are outside the count)",
+    "B_post": "unique right-side ENTITY nodes of S_post (mandatory R* nodes count once; a node shared by several groups counts once; the CLASS node never counts)",
+    "K_A": "optional groups with support exactly {A}; R* groups are exempt by definition"
+  },
+  "hard_constraints": {
+    "pre": [
+      "C-PRE-1 every R* group selected with full support",
+      "C-PRE-2 sum z_g <= B_pre",
+      "C-PRE-3 uncovered-letter and key-use linking",
+      "C-PRE-4 N1: |N_mand| + sum y_o <= B_post with COVER_ALT witnesses w_h (y_o >= z_g, y_o >= w_h; sum_{h in ALT(d)} w_h >= 1)",
+      "C-PRE-5 K_A_pre = 0 inside admissibility"
+    ],
+    "post": [
+      "C-POST-1 every R* group drawn",
+      "C-POST-2 |N_mand| + sum y_o <= B_post, two-sided y/z linking",
+      "C-POST-3 COVER_ALT for every distractor with a showable alternative",
+      "C-POST-4 optional Answer-only groups <= K_A_post = 0",
+      "C-POST-5 nesting P subset of Q"
+    ]
+  },
+  "pre_admissibility_arm_c_rows": [
+    "UNVERBALIZABLE",
+    "ANSWER_ONLY_K_A_0",
+    "SUPPORT_BELOW_2",
+    "ABSENCE_ONLY_LETTER",
+    "SHARED_BY_CONTAINMENT_LETTER",
+    "UNRESOLVED_INDEX_LETTER",
+    "GRANULARITY_RISK_CLAIM_UNDER_CANDIDATE",
+    "GRANULARITY_RISK_UNRESOLVED",
+    "GRANULARITY_RISK_HIERARCHY_UNMODELLED",
+    "DISTRACTOR_LABEL_LEAK",
+    "A_EXCLUDING_SUPPORT_3"
+  ],
+  "post_admissible_set": "all OPTIONAL_CONTEXT groups of the universe + all showable RATIONALE_ALTERNATIVE groups + the pre-selected groups (ABSENCE_ONLY, containment, unresolved, risk-bearing, distractor-label-leaking and template-less groups admissible post-answer, ordered against and counted; EXCLUDED never)",
+  "grounding_states": [
+    "SHARED",
+    "SHARED_BY_CONTAINMENT",
+    "ALTERNATIVE_OBSERVED",
+    "ABSENCE_ONLY",
+    "UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE"
+  ],
+  "risk_axis": [
+    "NONE",
+    "CLAIM_OBJECT_UNDER_CANDIDATE_OBJECT",
+    "HIERARCHY_NOT_MODELLED",
+    "UNRESOLVED_SEMANTIC_INDEX_UNAVAILABLE"
+  ],
+  "tiers": [
+    "MANDATORY_RATIONALE",
+    "EXCLUDED",
+    "RATIONALE_ALTERNATIVE",
+    "OPTIONAL_CONTEXT"
+  ],
+  "canonical_order": [
+    "tier_rank",
+    "-s",
+    "t",
+    "1-verb",
+    "abs",
+    "a",
+    "n",
+    "tok",
+    "len",
+    "slot(p)",
+    "dir",
+    "node"
+  ],
+  "tie_break": "sequential exact minimisation with equality rows per level; then the lexicographically largest 0/1 vector over free groups in canonical order (block-wise powers of two permitted, block size recorded)",
+  "solver_protocol": {
+    "solver": "HiGHS via scipy.optimize.milp",
+    "mip_rel_gap": 0.0,
+    "threads": 1,
+    "time_limit_seconds": 600.0,
+    "publication_rule": "OPTIMAL at every level + pure-Python re-check for every published item; otherwise CE_SOLVER_NOT_OPTIMAL_<status> / CE_RECHECK_FAILED, item not published, count in manifest, non-zero exit; no greedy fallback",
+    "n1_recheck": "|N_mand ∪ nodes(P) ∪ W| <= B_post with the returned witness set W; the audit's development-only slack (+3) is forbidden in production",
+    "oracle": "exhaustive enumeration for <= 16 free groups must agree",
+    "determinism": "byte-identical reruns (timing excluded)"
+  },
+  "universe": {
+    "default": "UNIVERSE_FULL",
+    "resource_guard": {
+      "optional_groups_guard": 20000,
+      "solve_time_limit_seconds": 600.0
+    },
+    "fallback_bounding": {
+      "status": "CE_UNIVERSE_BOUNDED_FALLBACK",
+      "strata": {
+        "node_sharing": true,
+        "k_per_key": 2,
+        "k_per_letter": 5
+      },
+      "n_max": 3200,
+      "reported_separately": true,
+      "touches": "OPTIONAL_CONTEXT only; never answerability, alternatives or grounding"
+    }
+  },
+  "template_policy": {
+    "interface": "TemplatePolicyRef(registry_path, registry_version, registry_sha256, supersedes_sha256)",
+    "direction": "T2",
+    "phase_1_keys": [
+      "battles/IN",
+      "birthPlace/IN",
+      "deathPlace/IN",
+      "products/IN",
+      "settlementType/OUT"
+    ],
+    "phase_2_target": "the remaining 43 SAFE_TO_TEMPLATE keys of template_candidates_v1.json",
+    "never_auto_admitted": {
+      "NEEDS_HUMAN_REVIEW": 29,
+      "REJECT": 14
+    },
+    "forbidden": [
+      "Answer-specific template",
+      "unrestricted predicate-label verbalizer",
+      "editing predicate_policy_v2.json"
+    ],
+    "rule_on_version_change": "new versioned registry file; every verbalizability-affected upstream/downstream measurement rerun before publication; frozen development artefacts never rewritten"
+  },
+  "presentation": {
+    "pre_answer": [
+      "frame sentence (H8a)",
+      "one sentence per group of S_pre with every supporting letter (atomicity)",
+      "R* in positive Answer-attribute phrasing, no exclusivity marker (P1)",
+      "Who is A? + four names in the recorded printed order",
+      "non-exhaustivity instruction (H15)"
+    ],
+    "post_answer_graph": {
+      "left": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "right": "ENTITY nodes of S_post (<= 7) + one CLASS node (typed, provenance-marked, budget-exempt)",
+      "edges": "one per observed fact edge of every selected group; OUT drawn choice->node, IN drawn node->choice; roles MANDATORY_RATIONALE / RATIONALE_ALTERNATIVE / OPTIONAL_CONTEXT / CLASS_FRAME",
+      "forbidden": [
+        "negative edge",
+        "node manufactured from absence",
+        "fifth left node",
+        "containment drawn as a choice-node edge",
+        "edge under an EXCLUDED group"
+      ],
+      "legend": "an edge is a fact recorded in the pinned snapshot; a missing edge means the snapshot records nothing, not that the fact is false"
+    },
+    "explanation_prose": "template-based; per distractor cites only basis(d) (R* facts at >= L1) and the drawn observed alternative; no L0 fact cited; no forbidden phrasing; no LLM polish in the benchmark"
+  },
+  "statuses": [
+    "CE_SELECTED",
+    "CE_SELECTED_MANDATORY_ONLY",
+    "CE_SKIPPED_NOT_LEARNER_FACING",
+    "CE_RATIONALE_NOT_VERBALIZABLE",
+    "CE_RATIONALE_OPTION_REFERENCE_CONFLICT",
+    "CE_MANDATORY_CORE_TOO_LARGE",
+    "CE_MANDATORY_EXCEEDS_BUDGET",
+    "CE_COVER_ALT_UNSHOWABLE",
+    "CE_UNIVERSE_BOUNDED_FALLBACK",
+    "CE_SEMANTIC_INDEX_UNAVAILABLE",
+    "CE_SOLVER_NOT_OPTIMAL_<status>",
+    "CE_RECHECK_FAILED",
+    "CE_NESTED_INFEASIBLE_AT_BUDGET",
+    "CE_NESTING_VIOLATED",
+    "CE_ANSWER_ENUMERATION_MISMATCH",
+    "CE_INPUT_CONTRACT_VIOLATION"
+  ],
+  "statuses_forbidden": [
+    "CE_SOLVER_UNAVAILABLE_GREEDY_USED",
+    "CE_SOLVER_TIMEOUT_GREEDY_USED"
+  ],
+  "invariants": {
+    "I-01": "upstream immutability",
+    "I-02": "IN/OUT separation",
+    "I-03": "Answer = A",
+    "I-04": "frozen B/C/D ordering",
+    "I-05": "full R* pre-answer inclusion",
+    "I-06": "no pre-answer ABSENCE_ONLY optional context",
+    "I-07": "Arm-C admissibility",
+    "I-08": "alternatives post-answer only + COVER_ALT",
+    "I-09": "K_A_pre = K_A_post = 0",
+    "I-10": "N1 budget safety",
+    "I-11": "unique ENTITY-node count <= 7 post-answer",
+    "I-12": "CLASS budget exemption",
+    "I-13": "nesting",
+    "I-14": "deterministic lexical/canonical final tie",
+    "I-15": "no human-difficulty inference from structural metrics",
+    "I-16": "no Answer-specific template",
+    "I-17": "explicit registry/version provenance",
+    "I-18": "exact-only publication",
+    "I-19": "every drawn edge observed in K",
+    "I-20": "atomicity",
+    "I-21": "ABSENCE_ONLY never verbalized as falsity",
+    "I-22": "explanation basis only",
+    "I-23": "printed option order block-balanced",
+    "I-24": "UNIVERSE_FULL unless the declared guard fired"
+  },
+  "adversarial_self_check": {
+    "hidden_weighted_sums": "PASS",
+    "conflicting_budgets": "PASS",
+    "route_exposing_ABSENCE_ONLY_pre_answer": "PASS",
+    "route_making_missing_edges_false": "PASS",
+    "CLASS_consuming_ENTITY_budget": "PASS",
+    "group_count_vs_node_count_ambiguity": "PASS",
+    "path_recreating_nested_infeasibility": "PASS (after tightening the N1 re-check: no +3 slack in production)",
+    "verbalizability_silently_changing_frozen_upstream_data": "PASS",
+    "answer_specific_special_case": "PASS",
+    "memo_vs_spec_mismatch": "PASS (frozen_parameters identical in the memo JSON and this summary; checked by the ARCH-4 task)"
+  },
+  "development_evidence_cited": {
+    "items": 396,
+    "mandatory_only_pre_T0": "264/396 (66.67%)",
+    "mandatory_only_pre_T2": "203/396 (51.26%)",
+    "mandatory_core_nodes_max": 6,
+    "n1_nested_infeasible_at_any_cell": 0,
+    "designated_cell_mean_entity_nodes_T0": 5.4419,
+    "k_a_post_0_vs_1_items_differing": "15/396 (3.79%)",
+    "full_universe_hard_items_solved": "43/43 (100%)",
+    "full_universe_seconds_median_max": [
+      3.6,
+      73.36
+    ],
+    "full_universe_max_variables": 9759,
+    "solver_certified_optimal_solves_arch3r_budget_stage": 1018271,
+    "oracle_agreement": {
+      "pre": "389/389",
+      "post": "34/34"
+    },
+    "grounding_rule_vs_frozen_classifier_pairs": "282933/282933",
+    "post_swap_sensitivity": {
+      "k1_k2": "14/396",
+      "k3_k4": "54/396",
+      "k4_k5": "58/396",
+      "others": "<= 1%"
+    },
+    "rstar_fully_verbalizable": {
+      "T0": "220/396",
+      "T1": "316/396",
+      "T2": "350/396"
+    }
+  },
+  "blockers_before_production_implementation": [
+    "researcher's manual signature on the decision memo (recorded via ARCH-4 prompt; pending)",
+    "researcher's answer to 'B3 may be implemented before the final benchmark run: YES / NO' (memo closing line; not decided by ARCH-4)",
+    "test plan of the implementation contract in place before solver code"
+  ],
+  "blockers_before_final_publication_benchmark": [
+    "upstream publication configuration not yet recorded (CLAUDE.md step 1: candidate-validity policy, granularity-risk policy, rationale objective, M1 node budget)",
+    "granularity_clean report-only status defect (ARCH-1 section 20): apply_granularity_policy() returns STATUS_NO_RISK_PRESENT under report-only with a non-zero incidence count; fix in new versioned code",
+    "main-L1 / unverbalizable contradiction (ARCH-1 section 20; H5): production registry version + versioned require-verbalizable policy in a new runner generation, or exclusion with reported yield; the publication configuration must record which",
+    "every verbalizability-dependent measurement rerun on the frozen configuration and registry version",
+    "preregistration manifest (spec section 12.3) before any human data",
+    "pre-existing protected-source pin failure (not caused by ARCH-4): git-untracked archive-only reference file src/MCQ_lrolesim.py hashes to 5214aeb7… while tests/test_pipeline_graph_lrolesim.py pins a286fe08… (rebaselined 2026-08-12); the executed kernel src/MCQ_lrolesim_ClaudeWeb_v2.py and every other protected pin pass; explain and restore or re-audit the pin before the publication benchmark"
+  ],
+  "package_preflight_2026-09-19": {
+    "journal2_b3_decision_support_2026-09-18.zip": {
+      "external_digest_matches": true,
+      "sha256": "8666a3361a918102bd26a4f326ec3ea083b3cd91d4cdf388c29431965800c2bd",
+      "zip_entries": 8346,
+      "zip_entries_expected": 8346,
+      "directory_entries_measured_is_dir": 0,
+      "testzip_first_bad": null,
+      "content_manifest_present": true,
+      "regular_files_in_zip": 8343,
+      "excluded_regular_files": 10,
+      "in_zip_not_in_manifest": [
+        "CONTENT_MANIFEST.json",
+        "SHA256SUMS.csv",
+        "SHA256SUMS.txt"
+      ],
+      "in_manifest_not_in_zip": "the 10 declared excluded paths"
+    },
+    "journal2_b3_pre_freeze_resolution_2026-09-19.zip": {
+      "external_digest_matches": true,
+      "sha256": "be9e9928c5919a2b808469dc5208a9fabc29680c98674d0485329231a8da7d57",
+      "zip_entries": 465,
+      "zip_entries_expected": 465,
+      "directory_entries_measured_is_dir": 0,
+      "testzip_first_bad": null,
+      "content_manifest_present": true,
+      "regular_files_in_zip": 462,
+      "excluded_regular_files": 0,
+      "in_zip_not_in_manifest": [
+        "CONTENT_MANIFEST.json",
+        "SHA256SUMS.csv",
+        "SHA256SUMS.txt"
+      ],
+      "in_manifest_not_in_zip": []
+    },
+    "action": "both LOCAL archives pass; no package stage rerun; no measurement recomputed",
+    "hardening": "build_package() (ARCH-3 script) and stage_package() (ARCH-3R script) now measure directory_entries_in_zip from ZipInfo.is_dir() instead of assuming 0 / copying the manifest; verification code only; both scripts compile"
+  },
+  "files_created": [
+    "docs/plans/B3_CHOICE_EVIDENCE_SPEC_ARCH4_2026-09-19.md",
+    "docs/plans/B3_CHOICE_EVIDENCE_SPEC_ARCH4_2026-09-19.summary.json",
+    "docs/plans/B3_ARCH4_IMPLEMENTATION_CONTRACT_2026-09-19.md",
+    "docs/plans/B3_ARCH4_FREEZE_MANIFEST_2026-09-19.json"
+  ],
+  "files_modified": [
+    "docs/plans/B3_HUMAN_DECISION_MEMO_2026-09-18.md",
+    "docs/plans/B3_HUMAN_DECISION_MEMO_2026-09-18.json",
+    "scripts/audit_b3_choice_evidence_decisions.py (verification lines in build_package only)",
+    "scripts/audit_b3_pre_freeze_resolution.py (verification lines in stage_package only)"
+  ],
+  "files_not_touched": [
+    "every frozen module",
+    "every v1-v4 output and cache",
+    "src/rationale_v3/policies/predicate_policy_v2.json",
+    "the three legacy sources",
+    "git state"
+  ],
+  "checks_run_by_arch4": {
+    "pytest": {
+      "command": "python -m pytest -q tests/test_pipeline_graph_lrolesim.py",
+      "passed": 130,
+      "failed": 1,
+      "failed_test": "TestProtectedSources::test_protected_source_is_unmodified[src/MCQ_lrolesim.py-a286fe08...]",
+      "failure_is_pre_existing": true,
+      "file_touched_by_arch4": false
+    },
+    "py_compile": [
+      "scripts/audit_b3_choice_evidence_decisions.py",
+      "scripts/audit_b3_pre_freeze_resolution.py"
+    ],
+    "json_validation": "all JSON deliverables load",
+    "memo_vs_summary_frozen_parameters_equal": true,
+    "forbidden_vocabulary_scan": "no hit in ARCH-4 text; remaining hits are unchanged 2026-09-18 memo prose",
+    "tests_not_run": "no other suite applies (no production source created); no measurement stage rerun"
+  }
+}

@@ -1134,6 +1134,9 @@ def stage_package(args, out_dir: Path) -> None:
         names = zf.namelist()
         inner = json.loads(zf.read([x for x in names if x.endswith("CONTENT_MANIFEST.json")][0]))
         bad = zf.testzip()
+        # [ARCH-4 integrity hardening, 2026-09-19] measured from ZipInfo.is_dir(),
+        # not copied from the on-disk manifest (which records the protocol's expectation).
+        directory_entries_measured = sum(1 for info in zf.infolist() if info.is_dir())
     disk = A3.read_json(ARCH3_DIR / "CONTENT_MANIFEST.json")
     ext = (ARCH3_DIR.parent / f"{ARCH3_DIR.name}.zip.sha256").read_text(encoding="utf-8").split()[0]
     before = {}
@@ -1148,7 +1151,10 @@ def stage_package(args, out_dir: Path) -> None:
         "content_manifest_inside_equals_on_disk": inner == disk,
         "zip_entries_equal_manifest_expected": len(names) == disk["zip_entries_expected"],
         "regular_files_total": disk["regular_files_total"], "regular_files_in_zip": disk["regular_files_in_zip"],
-        "excluded_regular_files": disk["excluded_regular_files"], "directory_entries_in_zip": disk["directory_entries_in_zip"],
+        "excluded_regular_files": disk["excluded_regular_files"],
+        "directory_entries_in_zip": directory_entries_measured,                      # measured (ZipInfo.is_dir), ARCH-4
+        "directory_entries_declared_in_manifest": disk["directory_entries_in_zip"],
+        "directory_entries_measured_equal_declared": directory_entries_measured == disk["directory_entries_in_zip"],
         "stale_zip_manifest_present": (ARCH3_DIR / "zip_manifest.json").exists(),
         "stale_zip_manifest_inside_archive": any(x.endswith("zip_manifest.json") for x in names),
         "archive_digest_inside_manifest": any("archive_sha256" in k for k in disk),
